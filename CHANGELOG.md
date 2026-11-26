@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-26
+
 ### Changed
 
 - The vendored OpenAPI spec now requires `url` or `videoId` on subtitle, summary and frame requests (`anyOf`).

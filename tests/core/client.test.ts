@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getJobRetryAfterSeconds } from '../../src/api/contract.js';
 import { ApiClient } from '../../src/http/client.js';
 import { ApiError, CLIENT_ERROR_CODES } from '../../src/api/errors.js';
+import type { ApiJob } from '../../src/api/types.js';
 import { version } from '../../src/utils/version.js';
 
 const KEY = 'unw_sk_test-secret-key';
@@ -81,20 +83,73 @@ describe('ApiClient request shape', () => {
 		expect(JSON.parse(String(init?.body))).toEqual(input);
 	});
 
-	it('POSTs transcript translation', async () => {
+	it('POSTs transcript translation and parses 202 + Location + Retry-After', async () => {
+		const queuedJob: ApiJob = {
+			id: 'job_tr_1',
+			kind: 'translation',
+			status: 'queued',
+			progress: { stage: 'queued', percent: 0 },
+			creditsCharged: 0,
+			createdAt: '2026-11-26T10:00:00.000Z',
+			startedAt: null,
+			completedAt: null,
+		};
+		fetchMock.mockResolvedValueOnce(jsonResponse(queuedJob, 202, {
+			location: '/api/v1/jobs/job_tr_1',
+			'retry-after': '5',
+		}));
 		const input = { videoId: 'abc', sourceLang: 'uk', targetLang: 'en' };
-		await client.translateTranscript(input);
+		const job = await client.submitTranslation(input);
 		const [url, init] = lastCall();
 		expect(String(url)).toBe(`${BASE}/api/v1/transcripts/translate`);
+		expect(init?.method).toBe('POST');
 		expect(JSON.parse(String(init?.body))).toEqual(input);
+		expect(job).toEqual(queuedJob);
+		expect(getJobRetryAfterSeconds(job)).toBe(5);
 	});
 
-	it('POSTs summary creation', async () => {
+	it('POSTs summary creation and falls back to Location header id if omitted', async () => {
+		const bodyWithoutId = {
+			kind: 'summary',
+			status: 'queued',
+			progress: null,
+			creditsCharged: 0,
+			createdAt: '2026-11-26T10:00:00.000Z',
+			startedAt: null,
+			completedAt: null,
+		};
+		fetchMock.mockResolvedValueOnce(jsonResponse(bodyWithoutId, 202, {
+			Location: '/api/v1/jobs/job_sum_42',
+			'Retry-After': '7',
+		}));
 		const input = { videoId: 'abc', lang: 'en', length: 'brief' as const };
-		await client.createSummary(input);
+		const job = await client.submitSummary(input);
 		const [url, init] = lastCall();
 		expect(String(url)).toBe(`${BASE}/api/v1/summaries`);
+		expect(init?.method).toBe('POST');
 		expect(JSON.parse(String(init?.body))).toEqual(input);
+		expect(job.id).toBe('job_sum_42');
+		expect(getJobRetryAfterSeconds(job)).toBe(7);
+	});
+
+	it('GETs job status by id with URL encoding and Retry-After', async () => {
+		const runningJob: ApiJob = {
+			id: 'job/1',
+			kind: 'summary',
+			status: 'running',
+			progress: { stage: 'generating', percent: 60 },
+			creditsCharged: 0,
+			createdAt: '2026-11-26T10:00:00.000Z',
+			startedAt: '2026-11-26T10:00:01.000Z',
+			completedAt: null,
+		};
+		fetchMock.mockResolvedValueOnce(jsonResponse(runningJob, 200, { 'retry-after': '5' }));
+		const job = await client.getJob('job/1');
+		const [url, init] = lastCall();
+		expect(String(url)).toBe(`${BASE}/api/v1/jobs/job%2F1`);
+		expect(init?.method).toBe('GET');
+		expect(job).toEqual(runningJob);
+		expect(getJobRetryAfterSeconds(job)).toBe(5);
 	});
 
 	it('sends article search params only when defined', async () => {
@@ -188,6 +243,40 @@ describe('ApiClient error mapping', () => {
 		expect(error.code).toBe('RATE_LIMITED');
 		expect(error.status).toBe(429);
 		expect(error.retryAfterSeconds).toBe(30);
+	});
+
+	it('parses Retry-After seconds from error body when header is absent', async () => {
+		fetchMock.mockResolvedValueOnce(jsonResponse(
+			{ error: { code: 'RATE_LIMITED', message: 'Too many requests.', retryAfterSeconds: 15 } },
+			429,
+		));
+		const error = await failure(() => new ApiClient(KEY, { fetch: fetchMock }).getCredits());
+		expect(error.code).toBe('RATE_LIMITED');
+		expect(error.status).toBe(429);
+		expect(error.retryAfterSeconds).toBe(15);
+	});
+
+	it('rejects immediately with AbortError when signal is already aborted', async () => {
+		const controller = new AbortController();
+		controller.abort();
+		await expect(
+			new ApiClient(KEY, { fetch: fetchMock }).getJob('job_1', { signal: controller.signal }),
+		).rejects.toMatchObject({ name: 'AbortError' });
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('propagates AbortError instead of NETWORK_ERROR when caller signal aborts in-flight', async () => {
+		const controller = new AbortController();
+		const abortingFetch = vi.fn(
+			(_input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> =>
+				new Promise((_resolve, reject) => {
+					init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+				}),
+		);
+		const client = new ApiClient(KEY, { baseUrl: BASE, fetch: abortingFetch });
+		const pending = client.getJob('job_1', { signal: controller.signal });
+		controller.abort();
+		await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
 	});
 
 	it('rejects with MISSING_API_KEY before making any request', async () => {

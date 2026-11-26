@@ -9,8 +9,9 @@ export function registerSummarizeVideoTool(server: McpServer, api: UnwatchedApi)
 		description:
 			'Generate a structured article from a YouTube video: title, intro, sections, key points '
 			+ 'and conclusion, in the requested language. Priced per hour of video; an already '
-			+ 'generated article is returned free. Slower than get_video_subtitles — prefer the '
+			+ 'generated article is returned free. May take several minutes for uncached videos and '
+			+ 'reports progress while running. Slower than get_video_subtitles — prefer the '
 			+ 'subtitles tool when you only need the raw text.',
 		inputSchema: summarizeVideoInputSchema,
-	}, (input) => summarizeVideoHandler(input, api));
+	}, (input, extra) => summarizeVideoHandler(input, api, extra));
 }

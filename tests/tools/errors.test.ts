@@ -42,6 +42,19 @@ describe('describeError', () => {
 			.toBe('SERVICE_BUSY: Extraction capacity is saturated. Retry in a few seconds.');
 	});
 
+	it('provides actionable guidance for async job and video failure codes', () => {
+		expect(describeError(new ApiError('JOB_INTERRUPTED', 'Interrupted', 0)))
+			.toBe('The job was interrupted by a server restart and your credits were refunded. Safe to retry.');
+		expect(describeError(new ApiError('TOO_MANY_JOBS', 'Too many jobs', 429)))
+			.toBe('Too many active jobs are already running for this API key (maximum 3). Wait for a running job to finish and retry.');
+		expect(describeError(new ApiError('VIDEO_UNAVAILABLE', 'Private', 0)))
+			.toBe('This video is unavailable (private, deleted, or removed) and cannot be processed.');
+		expect(describeError(new ApiError('TRANSCRIPT_EMPTY', 'Empty', 0)))
+			.toBe('The transcript for this video is empty, so there is no text to process.');
+		expect(describeError(new ApiError('GENERATION_FAILED', 'Model failed', 0)))
+			.toBe('Generation failed while processing this video. Retry later.');
+	});
+
 	it('handles non-ApiError throwables without crashing', () => {
 		expect(describeError(new Error('boom'))).toBe('boom');
 		expect(describeError('just a string')).toBe('Unexpected error.');

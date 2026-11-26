@@ -1,21 +1,19 @@
 import { ApiError, CLIENT_ERROR_CODES } from '../api/errors.js';
-import type { UnwatchedApi } from '../api/contract.js';
+import { setJobRetryAfterSeconds, type ApiRequestOptions, type UnwatchedApi } from '../api/contract.js';
 import type {
+	ApiJob,
 	ArticleSearchResult,
 	CreditSnapshot,
 	FramesResult,
 	SubtitlesResult,
 	SummaryLength,
-	SummaryResult,
 	TracksResult,
-	TranslateResult,
 	VideoInfo,
 	VideoRef,
 } from '../api/types.js';
 import { version } from '../utils/version.js';
 
-/** Summaries can take minutes to generate, so default to a generous ceiling. */
-const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+const DEFAULT_TIMEOUT_MS = 60 * 1000;
 
 const KEYS_URL = 'https://unwatched.click/en/developer/keys';
 
@@ -31,6 +29,7 @@ export interface ApiClientOptions {
 interface RequestOptions {
 	method: 'GET' | 'POST';
 	body?: unknown;
+	signal?: AbortSignal;
 }
 
 export class ApiClient implements UnwatchedApi {
@@ -48,13 +47,14 @@ export class ApiClient implements UnwatchedApi {
 		this.fetchImpl = options?.fetch ?? fetch;
 	}
 
-	async getSubtitles(input: VideoRef & { lang?: string }): Promise<SubtitlesResult> {
-		return this.request('/api/v1/subtitles', { method: 'POST', body: input });
+	async getSubtitles(input: VideoRef & { lang?: string }, opts?: ApiRequestOptions): Promise<SubtitlesResult> {
+		return this.request('/api/v1/subtitles', { method: 'POST', body: input, signal: opts?.signal });
 	}
 
-	async getVideoInfo(videoId: string): Promise<VideoInfo> {
+	async getVideoInfo(videoId: string, opts?: ApiRequestOptions): Promise<VideoInfo> {
 		const body = await this.request<{ video?: VideoInfo }>(`/api/v1/videos/${encodeURIComponent(videoId)}`, {
 			method: 'GET',
+			signal: opts?.signal,
 		});
 		if (!body?.video) {
 			// The request itself succeeded (2xx); only the shape was wrong.
@@ -63,32 +63,50 @@ export class ApiClient implements UnwatchedApi {
 		return body.video;
 	}
 
-	async listSubtitleTracks(videoId: string): Promise<TracksResult> {
-		return this.request(`/api/v1/videos/${encodeURIComponent(videoId)}/tracks`, { method: 'GET' });
+	async listSubtitleTracks(videoId: string, opts?: ApiRequestOptions): Promise<TracksResult> {
+		return this.request(`/api/v1/videos/${encodeURIComponent(videoId)}/tracks`, {
+			method: 'GET',
+			signal: opts?.signal,
+		});
 	}
 
 	async getFrames(input: VideoRef & {
 		timestamps: number[];
 		width?: number;
 		includeBase64?: boolean;
-	}): Promise<FramesResult> {
-		return this.request('/api/v1/frames', { method: 'POST', body: input });
+	}, opts?: ApiRequestOptions): Promise<FramesResult> {
+		return this.request('/api/v1/frames', { method: 'POST', body: input, signal: opts?.signal });
 	}
 
-	async translateTranscript(input: {
+	async submitTranslation(input: {
 		videoId: string;
 		sourceLang: string;
 		targetLang: string;
-	}): Promise<TranslateResult> {
-		return this.request('/api/v1/transcripts/translate', { method: 'POST', body: input });
+	}, opts?: ApiRequestOptions): Promise<ApiJob> {
+		return this.requestJob('/api/v1/transcripts/translate', {
+			method: 'POST',
+			body: input,
+			signal: opts?.signal,
+		});
 	}
 
-	async createSummary(input: VideoRef & {
+	async submitSummary(input: VideoRef & {
 		lang: string;
 		length?: SummaryLength;
 		sourceLang?: string;
-	}): Promise<SummaryResult> {
-		return this.request('/api/v1/summaries', { method: 'POST', body: input });
+	}, opts?: ApiRequestOptions): Promise<ApiJob> {
+		return this.requestJob('/api/v1/summaries', {
+			method: 'POST',
+			body: input,
+			signal: opts?.signal,
+		});
+	}
+
+	async getJob(id: string, opts?: ApiRequestOptions): Promise<ApiJob> {
+		return this.requestJob(`/api/v1/jobs/${encodeURIComponent(id)}`, {
+			method: 'GET',
+			signal: opts?.signal,
+		});
 	}
 
 	async searchArticles(input: {
@@ -97,26 +115,57 @@ export class ApiClient implements UnwatchedApi {
 		lang?: string;
 		page?: number;
 		limit?: number;
-	}): Promise<ArticleSearchResult> {
+	}, opts?: ApiRequestOptions): Promise<ArticleSearchResult> {
 		const params = new URLSearchParams();
 		for (const [key, value] of Object.entries(input)) {
 			if (value !== undefined) params.set(key, String(value));
 		}
 		const query = params.toString();
-		return this.request(query ? `/api/v1/articles?${query}` : '/api/v1/articles', { method: 'GET' });
+		return this.request(query ? `/api/v1/articles?${query}` : '/api/v1/articles', {
+			method: 'GET',
+			signal: opts?.signal,
+		});
 	}
 
-	async getCredits(): Promise<CreditSnapshot> {
-		return this.request('/api/v1/credits', { method: 'GET' });
+	async getCredits(opts?: ApiRequestOptions): Promise<CreditSnapshot> {
+		return this.request('/api/v1/credits', { method: 'GET', signal: opts?.signal });
 	}
 
 	private async request<T>(path: string, init: RequestOptions): Promise<T> {
+		const response = await this.performRequest(path, init);
+		return this.parseJson<T>(response);
+	}
+
+	private async requestJob(path: string, init: RequestOptions): Promise<ApiJob> {
+		const response = await this.performRequest(path, init);
+		const body = await this.parseJson<Partial<ApiJob>>(response);
+		if (!body || typeof body !== 'object') {
+			throw new ApiError(CLIENT_ERROR_CODES.badResponse, 'Unwatched API job response was not an object', response.status);
+		}
+		// 202 responses also carry Location: /api/v1/jobs/{id}; fall back to it if id is omitted.
+		if (typeof body.id !== 'string' || !body.id) {
+			const locationId = parseJobIdFromLocation(response.headers.get('location'));
+			if (!locationId) {
+				throw new ApiError(CLIENT_ERROR_CODES.badResponse, 'Unwatched API job response did not contain a job id', response.status);
+			}
+			body.id = locationId;
+		}
+		const job = body as ApiJob;
+		setJobRetryAfterSeconds(job, parseRetryAfter(response.headers.get('retry-after')));
+		return job;
+	}
+
+	private async performRequest(path: string, init: RequestOptions): Promise<Response> {
 		if (!this.apiKey) {
 			throw new ApiError(
 				CLIENT_ERROR_CODES.missingApiKey,
 				`UNWATCHED_API_KEY is not set. Get a key at ${KEYS_URL} and pass it as the UNWATCHED_API_KEY environment variable.`,
 				0,
 			);
+		}
+
+		if (init.signal?.aborted) {
+			throw createAbortError(init.signal.reason);
 		}
 
 		const headers: Record<string, string> = {
@@ -130,22 +179,32 @@ export class ApiClient implements UnwatchedApi {
 			body = JSON.stringify(init.body);
 		}
 
+		const timeoutSignal = AbortSignal.timeout(this.timeoutMs);
+		const signal = init.signal ? AbortSignal.any([timeoutSignal, init.signal]) : timeoutSignal;
+
 		let response: Response;
 		try {
 			response = await this.fetchImpl(this.baseUrl + path, {
 				method: init.method,
 				headers,
 				body,
-				signal: AbortSignal.timeout(this.timeoutMs),
+				signal,
 			});
 		} catch (error) {
-			throw this.requestFailure(error);
+			if (init.signal?.aborted) {
+				throw createAbortError(init.signal.reason);
+			}
+			throw this.requestFailure(error, timeoutSignal);
 		}
 
 		if (!response.ok) {
 			throw await this.responseError(response);
 		}
 
+		return response;
+	}
+
+	private async parseJson<T>(response: Response): Promise<T> {
 		try {
 			return await response.json() as T;
 		} catch {
@@ -154,8 +213,8 @@ export class ApiClient implements UnwatchedApi {
 	}
 
 	/** Maps a fetch rejection to the closest client-side code; never echoes the key. */
-	private requestFailure(error: unknown): ApiError {
-		if (error instanceof Error && error.name === 'TimeoutError') {
+	private requestFailure(error: unknown, timeoutSignal: AbortSignal): ApiError {
+		if (timeoutSignal.aborted || (error instanceof Error && error.name === 'TimeoutError')) {
 			return new ApiError(
 				CLIENT_ERROR_CODES.timeout,
 				`Unwatched API request timed out after ${Math.round(this.timeoutMs / 1000)}s`,
@@ -173,16 +232,43 @@ export class ApiClient implements UnwatchedApi {
 	private async responseError(response: Response): Promise<ApiError> {
 		let code = `HTTP_${response.status}`;
 		let message = `Unwatched API returned HTTP ${response.status}`;
+		let bodyRetryAfter: number | undefined;
 		try {
-			const body = await response.json() as { error?: { code?: unknown; message?: unknown } };
+			const body = await response.json() as { error?: { code?: unknown; message?: unknown; retryAfterSeconds?: unknown } };
 			if (typeof body?.error?.code === 'string' && typeof body?.error?.message === 'string') {
 				code = body.error.code;
 				message = body.error.message;
 			}
+			if (
+				typeof body?.error?.retryAfterSeconds === 'number'
+				&& Number.isFinite(body.error.retryAfterSeconds)
+				&& body.error.retryAfterSeconds >= 0
+			) {
+				bodyRetryAfter = Math.ceil(body.error.retryAfterSeconds);
+			}
 		} catch {
 			// Not the JSON error envelope; keep the fallback code and message.
 		}
-		return new ApiError(code, message, response.status, parseRetryAfter(response.headers.get('retry-after')));
+		const headerRetryAfter = parseRetryAfter(response.headers.get('retry-after'));
+		return new ApiError(code, message, response.status, headerRetryAfter ?? bodyRetryAfter);
+	}
+}
+
+function createAbortError(reason?: unknown): Error {
+	if (reason instanceof Error && reason.name === 'AbortError') return reason;
+	const err = new Error(typeof reason === 'string' && reason ? reason : 'The operation was aborted');
+	err.name = 'AbortError';
+	return err;
+}
+
+function parseJobIdFromLocation(location: string | null): string | undefined {
+	if (!location) return undefined;
+	const match = location.match(/\/jobs\/([^/?#]+)/);
+	if (!match) return undefined;
+	try {
+		return decodeURIComponent(match[1]);
+	} catch {
+		return match[1];
 	}
 }
 

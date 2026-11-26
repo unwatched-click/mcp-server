@@ -13,8 +13,9 @@ export function createFakeApi(): Mocked<UnwatchedApi> {
 		getVideoInfo: vi.fn<UnwatchedApi['getVideoInfo']>(),
 		listSubtitleTracks: vi.fn<UnwatchedApi['listSubtitleTracks']>(),
 		getFrames: vi.fn<UnwatchedApi['getFrames']>(),
-		translateTranscript: vi.fn<UnwatchedApi['translateTranscript']>(),
-		createSummary: vi.fn<UnwatchedApi['createSummary']>(),
+		submitTranslation: vi.fn<UnwatchedApi['submitTranslation']>(),
+		submitSummary: vi.fn<UnwatchedApi['submitSummary']>(),
+		getJob: vi.fn<UnwatchedApi['getJob']>(),
 		searchArticles: vi.fn<UnwatchedApi['searchArticles']>(),
 		getCredits: vi.fn<UnwatchedApi['getCredits']>(),
 	};

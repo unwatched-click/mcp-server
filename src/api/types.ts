@@ -120,5 +120,33 @@ export interface ApiErrorBody {
 	error: {
 		code: string;
 		message: string;
+		retryAfterSeconds?: number;
 	};
+}
+
+export type ApiJobKind = 'summary' | 'translation';
+
+export type ApiJobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+
+export type ApiJobStage = 'queued' | 'fetching_transcript' | 'generating' | 'saving';
+
+export interface ApiJobProgress {
+	stage: ApiJobStage;
+	percent: number;
+}
+
+export interface ApiJob {
+	id: string;
+	kind: ApiJobKind;
+	status: ApiJobStatus;
+	progress: ApiJobProgress | null;
+	result?: SummaryResult | TranslateResult;
+	error?: {
+		code: string;
+		message: string;
+	};
+	creditsCharged: number;
+	createdAt: string;
+	startedAt: string | null;
+	completedAt: string | null;
 }

@@ -9,7 +9,8 @@ export function registerTranslateTranscriptTool(server: McpServer, api: Unwatche
 		description:
 			'Translate an already-fetched transcript into another language, keeping timestamps. '
 			+ 'Requires get_video_subtitles to have been run for the source language first. '
-			+ 'Priced per hour of video; cached translations are free.',
+			+ 'Priced per hour of video; cached translations are free. May take several minutes '
+			+ 'for uncached transcripts and reports progress while running.',
 		inputSchema: translateTranscriptInputSchema,
-	}, (input) => translateTranscriptHandler(input, api));
+	}, (input, extra) => translateTranscriptHandler(input, api, extra));
 }

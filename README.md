@@ -88,6 +88,8 @@ Sign in at https://unwatched.click and open https://unwatched.click/en/developer
 | `search_articles` | Search the articles already generated on unwatched.click by title text, category and language. Use it before `summarize_video` to check whether a video has already been processed. | Free |
 | `get_credit_balance` | Remaining pay-as-you-go credits on the account the API key belongs to. | Free |
 
+`summarize_video` and `translate_transcript` run asynchronously for uncached videos and may take several minutes. Cached results return immediately; otherwise the server polls the job until completion, sending MCP `notifications/progress` updates when the client provides a `progressToken` and stopping immediately if the request is cancelled. If a call hits the client-side wait limit (15 minutes), the job keeps running server-side — calling the tool again with the same inputs re-attaches to the active job.
+
 ## Pricing
 
 Unwatched is pay-as-you-go: you buy credits and the tools marked as charged above spend them. One credit costs $0.01. Free tools and cache hits cost nothing. Call `get_credit_balance` at any time to check the remaining credits. Current prices per operation: https://unwatched.click/en/pricing

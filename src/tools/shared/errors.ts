@@ -22,6 +22,16 @@ export function describeError(err: unknown): string {
 				return typeof err.retryAfterSeconds === 'number'
 					? `Rate limited by the Unwatched API. Retry after ${err.retryAfterSeconds} seconds.`
 					: 'Rate limited by the Unwatched API. Retry in a few seconds.';
+			case 'TOO_MANY_JOBS':
+				return 'Too many active jobs are already running for this API key (maximum 3). Wait for a running job to finish and retry.';
+			case 'JOB_INTERRUPTED':
+				return 'The job was interrupted by a server restart and your credits were refunded. Safe to retry.';
+			case 'VIDEO_UNAVAILABLE':
+				return 'This video is unavailable (private, deleted, or removed) and cannot be processed.';
+			case 'TRANSCRIPT_EMPTY':
+				return 'The transcript for this video is empty, so there is no text to process.';
+			case 'GENERATION_FAILED':
+				return 'Generation failed while processing this video. Retry later.';
 			case 'INVALID_REQUEST':
 				// The backend message says what was wrong with the input.
 				return err.message;

@@ -66,10 +66,16 @@ describe('registerAllTools', () => {
 		expect(frameSchema.required).toEqual(['timestamps']);
 		expect(frameSchema.properties?.timestamps?.maxItems).toBe(5);
 
-		const translateSchema = byName.get('translate_transcript')!.inputSchema as JsonSchemaShape;
+		const translateTool = byName.get('translate_transcript')!;
+		expect(translateTool.description).toContain('several minutes');
+		expect(translateTool.description).toContain('progress');
+		const translateSchema = translateTool.inputSchema as JsonSchemaShape;
 		expect(translateSchema.required).toEqual(['videoId', 'sourceLang', 'targetLang']);
 
-		const summarizeSchema = byName.get('summarize_video')!.inputSchema as JsonSchemaShape;
+		const summarizeTool = byName.get('summarize_video')!;
+		expect(summarizeTool.description).toContain('several minutes');
+		expect(summarizeTool.description).toContain('progress');
+		const summarizeSchema = summarizeTool.inputSchema as JsonSchemaShape;
 		expect(summarizeSchema.required).toEqual(['lang']);
 
 		const balanceSchema = byName.get('get_credit_balance')!.inputSchema as JsonSchemaShape;

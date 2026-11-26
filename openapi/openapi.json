@@ -1,0 +1,2569 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "Unwatched API",
+        "version": "1.0.0",
+        "description": "REST API for unwatched.click: subtitles, translated transcripts, article-style summaries and still frames for any YouTube video.\n\nAuthentication: every operation except GET /openapi.json requires a per-user API key (`unw_sk_...`, mint one at https://unwatched.click/en/developer/keys) sent as `Authorization: Bearer <key>` or in the `x-api-key` header.\n\nCredits: billable operations debit a prepaid balance \u2014 1 credit = $0.01. Each operation's description lists its price from the live catalog; cache hits are free, and every billable response carries `usage { creditsCharged, creditsRemaining }`. GET /credits reports the balance.\n\nAsync jobs: POST /summaries and POST /transcripts/translate answer 202 with a job (status \"queued\" or \"running\") and a Location header pointing at GET /jobs/{id}. Poll that URL about every 5 seconds (the responses also send Retry-After) until status is \"succeeded\" \u2014 the payload is in `result` \u2014 or \"failed\", with the reason in `error` and the credit hold refunded. A POST satisfied from cache answers 200 with the finished job in the same shape.\n\nHuman-readable docs: https://unwatched.click/en/api-docs"
+    },
+    "servers": [
+        {
+            "url": "https://api.unwatched.click/api/v1",
+            "description": "Production API"
+        }
+    ],
+    "security": [
+        {
+            "bearerAuth": []
+        },
+        {
+            "x-api-key": []
+        }
+    ],
+    "tags": [
+        {
+            "name": "subtitles",
+            "description": "Subtitle tracks and transcripts."
+        },
+        {
+            "name": "videos",
+            "description": "Video metadata."
+        },
+        {
+            "name": "frames",
+            "description": "Still frames from a video."
+        },
+        {
+            "name": "transcripts",
+            "description": "Translating stored transcripts."
+        },
+        {
+            "name": "summaries",
+            "description": "Article-style summaries."
+        },
+        {
+            "name": "jobs",
+            "description": "Polling async jobs."
+        },
+        {
+            "name": "articles",
+            "description": "Searching saved articles."
+        },
+        {
+            "name": "credits",
+            "description": "Credit balance."
+        },
+        {
+            "name": "meta",
+            "description": "The API contract itself."
+        }
+    ],
+    "components": {
+        "securitySchemes": {
+            "bearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "description": "A per-user API key (`unw_sk_...`) minted at https://unwatched.click/en/developer/keys, sent as the bearer token."
+            },
+            "x-api-key": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "x-api-key",
+                "description": "The same unw_sk_... key in the x-api-key header (curl-friendly)."
+            }
+        },
+        "schemas": {
+            "ErrorCode": {
+                "type": "string",
+                "enum": [
+                    "INVALID_REQUEST",
+                    "UNAUTHORIZED",
+                    "INVALID_API_KEY",
+                    "FORBIDDEN",
+                    "INSUFFICIENT_CREDITS",
+                    "NOT_FOUND",
+                    "TRANSCRIPT_NOT_FOUND",
+                    "NO_SUBTITLES",
+                    "VIDEO_UNAVAILABLE",
+                    "TRANSCRIPT_EMPTY",
+                    "UNPROCESSABLE",
+                    "MEMBERS_ONLY",
+                    "RATE_LIMITED",
+                    "SERVICE_BUSY",
+                    "EXTRACTION_FAILED",
+                    "GENERATION_FAILED",
+                    "INTERNAL_ERROR",
+                    "JOB_NOT_FOUND",
+                    "JOB_INTERRUPTED",
+                    "TOO_MANY_JOBS"
+                ],
+                "description": "Stable machine-readable code; see the error catalog."
+            },
+            "ErrorResponse": {
+                "type": "object",
+                "properties": {
+                    "error": {
+                        "type": "object",
+                        "properties": {
+                            "code": {
+                                "$ref": "#/components/schemas/ErrorCode"
+                            },
+                            "message": {
+                                "type": "string",
+                                "description": "Human-readable; safe to relay to an end user."
+                            },
+                            "retryAfterSeconds": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "description": "Present on RATE_LIMITED (when known) and SERVICE_BUSY: wait at least this many seconds."
+                            }
+                        },
+                        "required": [
+                            "code",
+                            "message"
+                        ]
+                    }
+                },
+                "required": [
+                    "error"
+                ]
+            },
+            "Usage": {
+                "type": "object",
+                "properties": {
+                    "creditsCharged": {
+                        "type": "number",
+                        "description": "Credits charged for this call. 0 on cache hits and for exempt (ADMIN) callers."
+                    },
+                    "creditsRemaining": {
+                        "type": [
+                            "number",
+                            "null"
+                        ],
+                        "description": "Balance after the charge, in credits. null for exempt (ADMIN) callers."
+                    }
+                },
+                "required": [
+                    "creditsCharged",
+                    "creditsRemaining"
+                ]
+            },
+            "VideoInfo": {
+                "type": "object",
+                "properties": {
+                    "videoId": {
+                        "type": "string",
+                        "description": "11-character YouTube video id."
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "durationSeconds": {
+                        "type": [
+                            "number",
+                            "null"
+                        ],
+                        "description": "Video duration in seconds; null when unknown."
+                    },
+                    "thumbnailUrl": {
+                        "type": "string",
+                        "description": "Absolute URL of the video thumbnail."
+                    },
+                    "publishedAt": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time",
+                        "description": "Video publish date; null when unknown."
+                    }
+                },
+                "required": [
+                    "videoId",
+                    "title",
+                    "durationSeconds",
+                    "thumbnailUrl",
+                    "publishedAt"
+                ]
+            },
+            "Segment": {
+                "type": "object",
+                "properties": {
+                    "start": {
+                        "type": "number",
+                        "description": "Segment start, seconds from the video start."
+                    },
+                    "end": {
+                        "type": "number",
+                        "description": "Segment end, seconds from the video start \u2014 needed to cite spans."
+                    },
+                    "text": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "start",
+                    "end",
+                    "text"
+                ]
+            },
+            "SubtitleTrack": {
+                "type": "object",
+                "properties": {
+                    "lang": {
+                        "type": "string",
+                        "description": "Language code, e.g. \"en\" or \"en-orig\" for the auto-generated original."
+                    },
+                    "langName": {
+                        "type": "string",
+                        "description": "Human-readable language name."
+                    },
+                    "isAutoGenerated": {
+                        "type": "boolean"
+                    },
+                    "isTranslated": {
+                        "type": "boolean"
+                    },
+                    "quality": {
+                        "type": "string",
+                        "enum": [
+                            "high",
+                            "medium-high",
+                            "medium",
+                            "unsupported"
+                        ],
+                        "description": "Expected extraction quality for this track."
+                    }
+                },
+                "required": [
+                    "lang",
+                    "langName",
+                    "isAutoGenerated",
+                    "isTranslated",
+                    "quality"
+                ]
+            },
+            "Frame": {
+                "type": "object",
+                "properties": {
+                    "seconds": {
+                        "type": "number",
+                        "description": "Timestamp of the frame, whole seconds from the video start."
+                    },
+                    "width": {
+                        "type": "number",
+                        "description": "Frame width in pixels."
+                    },
+                    "imageUrl": {
+                        "type": "string",
+                        "description": "Absolute URL of the extracted frame image; stable for later fetches."
+                    },
+                    "mimeType": {
+                        "type": "string",
+                        "enum": [
+                            "image/webp"
+                        ]
+                    },
+                    "base64": {
+                        "type": "string",
+                        "description": "Inline WebP bytes, only when includeBase64 was requested."
+                    },
+                    "cached": {
+                        "type": "boolean",
+                        "description": "true when the frame was already extracted earlier (and therefore free)."
+                    }
+                },
+                "required": [
+                    "seconds",
+                    "width",
+                    "imageUrl",
+                    "mimeType",
+                    "cached"
+                ]
+            },
+            "SummaryArticle": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string"
+                    },
+                    "intro": {
+                        "type": "string"
+                    },
+                    "sections": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "heading": {
+                                    "type": "string"
+                                },
+                                "content": {
+                                    "type": "string",
+                                    "description": "Markdown body of the section."
+                                }
+                            },
+                            "required": [
+                                "heading",
+                                "content"
+                            ]
+                        }
+                    },
+                    "keyPoints": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "conclusion": {
+                        "type": "string"
+                    },
+                    "lang": {
+                        "type": "string",
+                        "description": "Language the article was written in."
+                    },
+                    "videoId": {
+                        "type": "string"
+                    },
+                    "summaryMode": {
+                        "type": "string",
+                        "enum": [
+                            "standard",
+                            "plot_synopsis",
+                            "trailer"
+                        ],
+                        "description": "Strategy the generator picked for this video."
+                    },
+                    "contentKind": {
+                        "type": "string",
+                        "enum": [
+                            "scripted_fiction",
+                            "trailer",
+                            "documentary",
+                            "lecture_or_explainer",
+                            "tutorial",
+                            "discussion_or_interview",
+                            "news",
+                            "review_or_commentary",
+                            "music_or_performance",
+                            "other"
+                        ],
+                        "description": "Content classification, when the classifier ran."
+                    }
+                },
+                "required": [
+                    "title",
+                    "intro",
+                    "sections",
+                    "keyPoints",
+                    "conclusion",
+                    "lang",
+                    "videoId",
+                    "summaryMode"
+                ]
+            },
+            "ArticleSearchItem": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "videoId": {
+                        "type": "string"
+                    },
+                    "videoUrl": {
+                        "type": "string"
+                    },
+                    "videoTitle": {
+                        "type": "string"
+                    },
+                    "articleLang": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "description": "Article title; null when only the video title is known."
+                    },
+                    "intro": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "description": "First 300 characters of the intro; null when absent."
+                    },
+                    "categories": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "slug": {
+                                    "type": "string"
+                                },
+                                "label": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "slug",
+                                "label"
+                            ]
+                        }
+                    },
+                    "videoDuration": {
+                        "type": [
+                            "number",
+                            "null"
+                        ]
+                    },
+                    "videoPublishedAt": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time",
+                        "description": "ISO 8601 timestamp, UTC."
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "ISO 8601 timestamp, UTC."
+                    }
+                },
+                "required": [
+                    "id",
+                    "videoId",
+                    "videoUrl",
+                    "videoTitle",
+                    "articleLang",
+                    "title",
+                    "intro",
+                    "categories",
+                    "videoDuration",
+                    "videoPublishedAt",
+                    "createdAt"
+                ]
+            },
+            "TierProgress": {
+                "type": "object",
+                "properties": {
+                    "earnedTier": {
+                        "type": "string",
+                        "enum": [
+                            "FREE",
+                            "PREMIUM",
+                            "MAX"
+                        ]
+                    },
+                    "nextTier": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "enum": [
+                            "PREMIUM",
+                            "MAX",
+                            null
+                        ]
+                    },
+                    "currentThresholdUnits": {
+                        "type": "integer"
+                    },
+                    "nextThresholdUnits": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ]
+                    },
+                    "unitsToNextTier": {
+                        "type": "integer"
+                    },
+                    "percent": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "earnedTier",
+                    "nextTier",
+                    "currentThresholdUnits",
+                    "nextThresholdUnits",
+                    "unitsToNextTier",
+                    "percent"
+                ]
+            },
+            "JobProgress": {
+                "type": "object",
+                "properties": {
+                    "stage": {
+                        "type": "string",
+                        "enum": [
+                            "queued",
+                            "fetching_transcript",
+                            "generating",
+                            "saving"
+                        ],
+                        "description": "Coarse pipeline stage of the job."
+                    },
+                    "percent": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 100,
+                        "description": "Rough position estimate, 0-100. Advisory, not a real percentage of work done."
+                    }
+                },
+                "required": [
+                    "stage",
+                    "percent"
+                ]
+            },
+            "JobError": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "$ref": "#/components/schemas/ErrorCode"
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "What went wrong; safe to relay to an end user."
+                    }
+                },
+                "required": [
+                    "code",
+                    "message"
+                ]
+            },
+            "SubtitlesRequest": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Full YouTube URL. Either url or videoId is required."
+                    },
+                    "videoId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "11-character YouTube video id."
+                    },
+                    "lang": {
+                        "type": "string",
+                        "minLength": 2,
+                        "maxLength": 16,
+                        "description": "Subtitle language code, e.g. \"en\". Defaults to the best available track."
+                    }
+                }
+            },
+            "SubtitlesResult": {
+                "type": "object",
+                "properties": {
+                    "videoId": {
+                        "type": "string"
+                    },
+                    "lang": {
+                        "type": "string",
+                        "description": "Language actually returned."
+                    },
+                    "detectedLang": {
+                        "type": "string",
+                        "description": "Present when the language was auto-detected rather than requested."
+                    },
+                    "video": {
+                        "$ref": "#/components/schemas/VideoInfo"
+                    },
+                    "segments": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Segment"
+                        }
+                    },
+                    "tracks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SubtitleTrack"
+                        },
+                        "description": "All subtitle tracks of the video, not just the returned one."
+                    },
+                    "cached": {
+                        "type": "boolean",
+                        "description": "true when served from the store \u2014 and therefore free."
+                    },
+                    "usage": {
+                        "$ref": "#/components/schemas/Usage"
+                    }
+                },
+                "required": [
+                    "videoId",
+                    "lang",
+                    "video",
+                    "segments",
+                    "tracks",
+                    "cached",
+                    "usage"
+                ]
+            },
+            "VideoResponse": {
+                "type": "object",
+                "properties": {
+                    "video": {
+                        "$ref": "#/components/schemas/VideoInfo"
+                    }
+                },
+                "required": [
+                    "video"
+                ]
+            },
+            "TracksResponse": {
+                "type": "object",
+                "properties": {
+                    "videoId": {
+                        "type": "string"
+                    },
+                    "tracks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SubtitleTrack"
+                        }
+                    }
+                },
+                "required": [
+                    "videoId",
+                    "tracks"
+                ]
+            },
+            "FramesRequest": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Full YouTube URL. Either url or videoId is required."
+                    },
+                    "videoId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "11-character YouTube video id."
+                    },
+                    "t": {
+                        "type": "number",
+                        "minimum": 0,
+                        "description": "Single timestamp in seconds. Either t or timestamps is required."
+                    },
+                    "timestamps": {
+                        "type": "array",
+                        "items": {
+                            "type": "number",
+                            "minimum": 0
+                        },
+                        "minItems": 1,
+                        "maxItems": 5,
+                        "description": "Timestamps in seconds from the video start, max 5 per request."
+                    },
+                    "width": {
+                        "type": "integer",
+                        "description": "Frame width in pixels, 160-1280. Defaults to 720."
+                    },
+                    "includeBase64": {
+                        "type": "boolean",
+                        "description": "Include the frame bytes inline as base64."
+                    }
+                }
+            },
+            "FramesResult": {
+                "type": "object",
+                "properties": {
+                    "videoId": {
+                        "type": "string"
+                    },
+                    "video": {
+                        "$ref": "#/components/schemas/VideoInfo"
+                    },
+                    "frames": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Frame"
+                        }
+                    },
+                    "usage": {
+                        "$ref": "#/components/schemas/Usage"
+                    }
+                },
+                "required": [
+                    "videoId",
+                    "video",
+                    "frames",
+                    "usage"
+                ]
+            },
+            "SingleFrameResult": {
+                "type": "object",
+                "properties": {
+                    "videoId": {
+                        "type": "string"
+                    },
+                    "video": {
+                        "$ref": "#/components/schemas/VideoInfo"
+                    },
+                    "frames": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Frame"
+                        }
+                    },
+                    "usage": {
+                        "$ref": "#/components/schemas/Usage"
+                    },
+                    "frame": {
+                        "$ref": "#/components/schemas/Frame"
+                    }
+                },
+                "required": [
+                    "videoId",
+                    "video",
+                    "frames",
+                    "usage",
+                    "frame"
+                ]
+            },
+            "TranslateRequest": {
+                "type": "object",
+                "properties": {
+                    "videoId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "11-character YouTube video id."
+                    },
+                    "sourceLang": {
+                        "type": "string",
+                        "minLength": 2,
+                        "maxLength": 16,
+                        "description": "Language of the stored transcript, e.g. \"en\"."
+                    },
+                    "targetLang": {
+                        "type": "string",
+                        "minLength": 2,
+                        "maxLength": 16,
+                        "description": "Language to translate into, e.g. \"uk\"."
+                    }
+                },
+                "required": [
+                    "videoId",
+                    "sourceLang",
+                    "targetLang"
+                ]
+            },
+            "TranslateResult": {
+                "type": "object",
+                "properties": {
+                    "videoId": {
+                        "type": "string"
+                    },
+                    "sourceLang": {
+                        "type": "string"
+                    },
+                    "targetLang": {
+                        "type": "string"
+                    },
+                    "segments": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Segment"
+                        }
+                    },
+                    "cached": {
+                        "type": "boolean"
+                    },
+                    "usage": {
+                        "$ref": "#/components/schemas/Usage"
+                    }
+                },
+                "required": [
+                    "videoId",
+                    "sourceLang",
+                    "targetLang",
+                    "segments",
+                    "cached",
+                    "usage"
+                ]
+            },
+            "SummaryRequest": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Full YouTube URL. Either url or videoId is required."
+                    },
+                    "videoId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "11-character YouTube video id."
+                    },
+                    "lang": {
+                        "type": "string",
+                        "minLength": 2,
+                        "maxLength": 16,
+                        "description": "Language for the article, e.g. \"en\". Use \"auto\" to keep the video's language."
+                    },
+                    "length": {
+                        "type": "string",
+                        "enum": [
+                            "brief",
+                            "medium",
+                            "full"
+                        ],
+                        "description": "Article length. Defaults to \"medium\"."
+                    },
+                    "tier": {
+                        "type": "string",
+                        "description": "Model tier hint; \"speed\" or \"quality\". Defaults per account role."
+                    },
+                    "sourceLang": {
+                        "type": "string",
+                        "minLength": 2,
+                        "maxLength": 16,
+                        "description": "Language of the source subtitles, when it differs from the article language."
+                    }
+                },
+                "required": [
+                    "lang"
+                ]
+            },
+            "SummaryResult": {
+                "type": "object",
+                "properties": {
+                    "article": {
+                        "$ref": "#/components/schemas/SummaryArticle"
+                    },
+                    "video": {
+                        "$ref": "#/components/schemas/VideoInfo"
+                    },
+                    "cached": {
+                        "type": "boolean",
+                        "description": "true when an existing article satisfied the request \u2014 and it was free."
+                    },
+                    "usage": {
+                        "$ref": "#/components/schemas/Usage"
+                    }
+                },
+                "required": [
+                    "article",
+                    "video",
+                    "cached",
+                    "usage"
+                ]
+            },
+            "ArticlesResponse": {
+                "type": "object",
+                "properties": {
+                    "articles": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ArticleSearchItem"
+                        }
+                    },
+                    "total": {
+                        "type": "integer"
+                    },
+                    "page": {
+                        "type": "integer"
+                    },
+                    "limit": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "articles",
+                    "total",
+                    "page",
+                    "limit"
+                ]
+            },
+            "CreditSnapshot": {
+                "type": "object",
+                "properties": {
+                    "accessTier": {
+                        "type": "string",
+                        "enum": [
+                            "FREE",
+                            "PREMIUM",
+                            "MAX"
+                        ]
+                    },
+                    "isUnlimited": {
+                        "type": "boolean",
+                        "description": "true for ADMIN \u2014 balance fields are informational then."
+                    },
+                    "unitsPerCredit": {
+                        "type": "integer"
+                    },
+                    "dailyUnits": {
+                        "type": "integer",
+                        "description": "Remaining free monthly grant, in units."
+                    },
+                    "purchasedUnits": {
+                        "type": "integer",
+                        "description": "Remaining purchased credits, in units."
+                    },
+                    "totalUnits": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "description": "Spendable balance, in units; null for ADMIN."
+                    },
+                    "lifetimePurchasedUnits": {
+                        "type": "integer"
+                    },
+                    "nextDailyResetAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "When the free grant resets (start of the next UTC month)."
+                    },
+                    "progress": {
+                        "$ref": "#/components/schemas/TierProgress"
+                    }
+                },
+                "required": [
+                    "accessTier",
+                    "isUnlimited",
+                    "unitsPerCredit",
+                    "dailyUnits",
+                    "purchasedUnits",
+                    "totalUnits",
+                    "lifetimePurchasedUnits",
+                    "nextDailyResetAt",
+                    "progress"
+                ]
+            },
+            "SummaryJob": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Job id; pass it to GET /jobs/{id}."
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "queued",
+                            "running",
+                            "succeeded",
+                            "failed"
+                        ],
+                        "description": "Terminal statuses are \"succeeded\" and \"failed\"."
+                    },
+                    "progress": {
+                        "type": [
+                            "object",
+                            "null"
+                        ],
+                        "properties": {
+                            "stage": {
+                                "type": "string",
+                                "enum": [
+                                    "queued",
+                                    "fetching_transcript",
+                                    "generating",
+                                    "saving"
+                                ],
+                                "description": "Coarse pipeline stage of the job."
+                            },
+                            "percent": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100,
+                                "description": "Rough position estimate, 0-100. Advisory, not a real percentage of work done."
+                            }
+                        },
+                        "required": [
+                            "stage",
+                            "percent"
+                        ],
+                        "description": "Advisory progress; null before the runner reports its first stage."
+                    },
+                    "error": {
+                        "type": "object",
+                        "properties": {
+                            "code": {
+                                "$ref": "#/components/schemas/ErrorCode"
+                            },
+                            "message": {
+                                "type": "string",
+                                "description": "What went wrong; safe to relay to an end user."
+                            }
+                        },
+                        "required": [
+                            "code",
+                            "message"
+                        ],
+                        "description": "Present only when status is \"failed\"."
+                    },
+                    "creditsCharged": {
+                        "type": "number",
+                        "description": "Credits the job cost. 0 while it runs, on cache hits and on failures."
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "ISO 8601 timestamp, UTC."
+                    },
+                    "startedAt": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time",
+                        "description": "When the runner picked the job up; null while queued."
+                    },
+                    "completedAt": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time",
+                        "description": "When the job reached a terminal status; null while it runs."
+                    },
+                    "kind": {
+                        "type": "string",
+                        "enum": [
+                            "summary"
+                        ]
+                    },
+                    "result": {
+                        "type": "object",
+                        "properties": {
+                            "article": {
+                                "$ref": "#/components/schemas/SummaryArticle"
+                            },
+                            "video": {
+                                "$ref": "#/components/schemas/VideoInfo"
+                            },
+                            "cached": {
+                                "type": "boolean",
+                                "description": "true when an existing article satisfied the request \u2014 and it was free."
+                            },
+                            "usage": {
+                                "$ref": "#/components/schemas/Usage"
+                            }
+                        },
+                        "required": [
+                            "article",
+                            "video",
+                            "cached",
+                            "usage"
+                        ],
+                        "description": "The summary result; present once status is \"succeeded\"."
+                    }
+                },
+                "required": [
+                    "id",
+                    "status",
+                    "progress",
+                    "creditsCharged",
+                    "createdAt",
+                    "startedAt",
+                    "completedAt",
+                    "kind"
+                ]
+            },
+            "TranslationJob": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Job id; pass it to GET /jobs/{id}."
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "queued",
+                            "running",
+                            "succeeded",
+                            "failed"
+                        ],
+                        "description": "Terminal statuses are \"succeeded\" and \"failed\"."
+                    },
+                    "progress": {
+                        "type": [
+                            "object",
+                            "null"
+                        ],
+                        "properties": {
+                            "stage": {
+                                "type": "string",
+                                "enum": [
+                                    "queued",
+                                    "fetching_transcript",
+                                    "generating",
+                                    "saving"
+                                ],
+                                "description": "Coarse pipeline stage of the job."
+                            },
+                            "percent": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100,
+                                "description": "Rough position estimate, 0-100. Advisory, not a real percentage of work done."
+                            }
+                        },
+                        "required": [
+                            "stage",
+                            "percent"
+                        ],
+                        "description": "Advisory progress; null before the runner reports its first stage."
+                    },
+                    "error": {
+                        "type": "object",
+                        "properties": {
+                            "code": {
+                                "$ref": "#/components/schemas/ErrorCode"
+                            },
+                            "message": {
+                                "type": "string",
+                                "description": "What went wrong; safe to relay to an end user."
+                            }
+                        },
+                        "required": [
+                            "code",
+                            "message"
+                        ],
+                        "description": "Present only when status is \"failed\"."
+                    },
+                    "creditsCharged": {
+                        "type": "number",
+                        "description": "Credits the job cost. 0 while it runs, on cache hits and on failures."
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "ISO 8601 timestamp, UTC."
+                    },
+                    "startedAt": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time",
+                        "description": "When the runner picked the job up; null while queued."
+                    },
+                    "completedAt": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time",
+                        "description": "When the job reached a terminal status; null while it runs."
+                    },
+                    "kind": {
+                        "type": "string",
+                        "enum": [
+                            "translation"
+                        ]
+                    },
+                    "result": {
+                        "type": "object",
+                        "properties": {
+                            "videoId": {
+                                "type": "string"
+                            },
+                            "sourceLang": {
+                                "type": "string"
+                            },
+                            "targetLang": {
+                                "type": "string"
+                            },
+                            "segments": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/Segment"
+                                }
+                            },
+                            "cached": {
+                                "type": "boolean"
+                            },
+                            "usage": {
+                                "$ref": "#/components/schemas/Usage"
+                            }
+                        },
+                        "required": [
+                            "videoId",
+                            "sourceLang",
+                            "targetLang",
+                            "segments",
+                            "cached",
+                            "usage"
+                        ],
+                        "description": "The translated transcript; present once status is \"succeeded\"."
+                    }
+                },
+                "required": [
+                    "id",
+                    "status",
+                    "progress",
+                    "creditsCharged",
+                    "createdAt",
+                    "startedAt",
+                    "completedAt",
+                    "kind"
+                ]
+            },
+            "ApiJob": {
+                "oneOf": [
+                    {
+                        "$ref": "#/components/schemas/SummaryJob"
+                    },
+                    {
+                        "$ref": "#/components/schemas/TranslationJob"
+                    }
+                ],
+                "discriminator": {
+                    "propertyName": "kind",
+                    "mapping": {
+                        "summary": "#/components/schemas/SummaryJob",
+                        "translation": "#/components/schemas/TranslationJob"
+                    }
+                }
+            }
+        },
+        "parameters": {}
+    },
+    "paths": {
+        "/subtitles": {
+            "post": {
+                "operationId": "getSubtitles",
+                "summary": "Fetch a video's subtitles",
+                "description": "Fetches one subtitle track \u2014 segments carry `{ start, end, text }` so spans can be cited \u2014 plus the video's metadata and the full track list. Pass lang to pick a language, or omit it to take the best available track (detectedLang then reports the choice). Costs 1 credit when the transcript is not stored yet; stored transcripts are free.",
+                "tags": [
+                    "subtitles"
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SubtitlesRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "The transcript with segments, every track and the usage block.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SubtitlesResult"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Error envelope. Code at this status: INVALID_REQUEST \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INVALID_REQUEST"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error envelope. Codes at this status: UNAUTHORIZED, INVALID_API_KEY \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "UNAUTHORIZED",
+                            "INVALID_API_KEY"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "402": {
+                        "description": "Error envelope. Code at this status: INSUFFICIENT_CREDITS \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INSUFFICIENT_CREDITS"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Error envelope. Codes at this status: NO_SUBTITLES, UNPROCESSABLE, MEMBERS_ONLY, VIDEO_UNAVAILABLE, TRANSCRIPT_EMPTY \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "NO_SUBTITLES",
+                            "UNPROCESSABLE",
+                            "MEMBERS_ONLY",
+                            "VIDEO_UNAVAILABLE",
+                            "TRANSCRIPT_EMPTY"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Error envelope. Code at this status: RATE_LIMITED \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "RATE_LIMITED"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error envelope. Code at this status: INTERNAL_ERROR \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INTERNAL_ERROR"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "Error envelope. Code at this status: EXTRACTION_FAILED \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "EXTRACTION_FAILED"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Error envelope. Code at this status: SERVICE_BUSY \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "SERVICE_BUSY"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/videos/{videoId}": {
+            "get": {
+                "operationId": "getVideo",
+                "summary": "Get video metadata",
+                "description": "Title, duration, thumbnail URL and publish date of one video. Free.",
+                "tags": [
+                    "videos"
+                ],
+                "parameters": [
+                    {
+                        "schema": {
+                            "type": "string",
+                            "description": "11-character YouTube video id."
+                        },
+                        "required": true,
+                        "description": "11-character YouTube video id.",
+                        "name": "videoId",
+                        "in": "path"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Video metadata.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/VideoResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Error envelope. Code at this status: INVALID_REQUEST \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INVALID_REQUEST"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error envelope. Codes at this status: UNAUTHORIZED, INVALID_API_KEY \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "UNAUTHORIZED",
+                            "INVALID_API_KEY"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Error envelope. Code at this status: RATE_LIMITED \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "RATE_LIMITED"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error envelope. Code at this status: INTERNAL_ERROR \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INTERNAL_ERROR"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/videos/{videoId}/tracks": {
+            "get": {
+                "operationId": "listSubtitleTracks",
+                "summary": "List subtitle tracks",
+                "description": "Every subtitle track of the video, with its expected extraction quality. Free \u2014 use it to pick a lang for POST /subtitles before spending credits.",
+                "tags": [
+                    "subtitles"
+                ],
+                "parameters": [
+                    {
+                        "schema": {
+                            "type": "string",
+                            "description": "11-character YouTube video id."
+                        },
+                        "required": true,
+                        "description": "11-character YouTube video id.",
+                        "name": "videoId",
+                        "in": "path"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "All tracks of the video.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TracksResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Error envelope. Code at this status: INVALID_REQUEST \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INVALID_REQUEST"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error envelope. Codes at this status: UNAUTHORIZED, INVALID_API_KEY \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "UNAUTHORIZED",
+                            "INVALID_API_KEY"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Error envelope. Codes at this status: UNPROCESSABLE, MEMBERS_ONLY, VIDEO_UNAVAILABLE \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "UNPROCESSABLE",
+                            "MEMBERS_ONLY",
+                            "VIDEO_UNAVAILABLE"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Error envelope. Code at this status: RATE_LIMITED \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "RATE_LIMITED"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error envelope. Code at this status: INTERNAL_ERROR \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INTERNAL_ERROR"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "Error envelope. Code at this status: EXTRACTION_FAILED \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "EXTRACTION_FAILED"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Error envelope. Code at this status: SERVICE_BUSY \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "SERVICE_BUSY"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/frames": {
+            "post": {
+                "operationId": "getFrames",
+                "summary": "Extract still frames",
+                "description": "Extracts up to 5 frames at whole-second timestamps (the second is also the cache key and the price unit). Frames already extracted are free; each new one costs 1 credit. Set includeBase64 to also get the bytes inline. imageUrl stays valid for later fetches.",
+                "tags": [
+                    "frames"
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FramesRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "The extracted frames and the usage block.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FramesResult"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Error envelope. Code at this status: INVALID_REQUEST \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INVALID_REQUEST"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error envelope. Codes at this status: UNAUTHORIZED, INVALID_API_KEY \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "UNAUTHORIZED",
+                            "INVALID_API_KEY"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "402": {
+                        "description": "Error envelope. Code at this status: INSUFFICIENT_CREDITS \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INSUFFICIENT_CREDITS"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Error envelope. Code at this status: RATE_LIMITED \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "RATE_LIMITED"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error envelope. Code at this status: INTERNAL_ERROR \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INTERNAL_ERROR"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "Error envelope. Code at this status: EXTRACTION_FAILED \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "EXTRACTION_FAILED"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Error envelope. Code at this status: SERVICE_BUSY \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "SERVICE_BUSY"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/videos/{videoId}/frame": {
+            "get": {
+                "operationId": "getFrame",
+                "summary": "Extract a single frame",
+                "description": "GET convenience for one frame \u2014 same parameters and per-frame pricing as POST /frames (1 credit per frame not already extracted), so a frame can be a plain link.",
+                "tags": [
+                    "frames"
+                ],
+                "parameters": [
+                    {
+                        "schema": {
+                            "type": "string",
+                            "description": "11-character YouTube video id."
+                        },
+                        "required": true,
+                        "description": "11-character YouTube video id.",
+                        "name": "videoId",
+                        "in": "path"
+                    },
+                    {
+                        "schema": {
+                            "type": [
+                                "number",
+                                "null"
+                            ],
+                            "minimum": 0,
+                            "description": "Timestamp in seconds from the video start."
+                        },
+                        "required": true,
+                        "description": "Timestamp in seconds from the video start.",
+                        "name": "t",
+                        "in": "query"
+                    },
+                    {
+                        "schema": {
+                            "type": [
+                                "integer",
+                                "null"
+                            ],
+                            "description": "Frame width in pixels, 160-1280. Defaults to 720."
+                        },
+                        "required": false,
+                        "description": "Frame width in pixels, 160-1280. Defaults to 720.",
+                        "name": "width",
+                        "in": "query"
+                    },
+                    {
+                        "schema": {
+                            "type": [
+                                "boolean",
+                                "null"
+                            ],
+                            "description": "Include the frame bytes inline as base64."
+                        },
+                        "required": false,
+                        "description": "Include the frame bytes inline as base64.",
+                        "name": "includeBase64",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The frames array (one entry) plus `frame` pointing at the same object.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SingleFrameResult"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Error envelope. Code at this status: INVALID_REQUEST \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INVALID_REQUEST"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error envelope. Codes at this status: UNAUTHORIZED, INVALID_API_KEY \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "UNAUTHORIZED",
+                            "INVALID_API_KEY"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "402": {
+                        "description": "Error envelope. Code at this status: INSUFFICIENT_CREDITS \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INSUFFICIENT_CREDITS"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Error envelope. Code at this status: RATE_LIMITED \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "RATE_LIMITED"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error envelope. Code at this status: INTERNAL_ERROR \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INTERNAL_ERROR"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "Error envelope. Code at this status: EXTRACTION_FAILED \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "EXTRACTION_FAILED"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Error envelope. Code at this status: SERVICE_BUSY \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "SERVICE_BUSY"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/transcripts/translate": {
+            "post": {
+                "operationId": "createTranslationJob",
+                "summary": "Create a translation job",
+                "description": "Translates a stored transcript into targetLang. The transcript must already be in the store \u2014 POST /subtitles first, otherwise this fails with TRANSCRIPT_NOT_FOUND. Answers 202 with a job while it runs, or 200 with a finished job when a stored translation (or sourceLang === targetLang) satisfies the request. The running job costs 5 credits per hour of video (minimum 1 credit); cache hits are free.",
+                "tags": [
+                    "transcripts"
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TranslateRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Done immediately \u2014 a cached translation satisfied the request; the job is already succeeded.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiJob"
+                                }
+                            }
+                        }
+                    },
+                    "202": {
+                        "description": "Accepted \u2014 the job is queued or running. Poll the Location URL every 5 seconds.",
+                        "headers": {
+                            "Location": {
+                                "description": "URL of the created job: /api/v1/jobs/{id}.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            },
+                            "Retry-After": {
+                                "description": "Seconds to wait before polling the job again (5).",
+                                "schema": {
+                                    "type": "integer"
+                                }
+                            }
+                        },
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiJob"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Error envelope. Code at this status: INVALID_REQUEST \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INVALID_REQUEST"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error envelope. Codes at this status: UNAUTHORIZED, INVALID_API_KEY \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "UNAUTHORIZED",
+                            "INVALID_API_KEY"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "402": {
+                        "description": "Error envelope. Code at this status: INSUFFICIENT_CREDITS \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INSUFFICIENT_CREDITS"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Error envelope. Code at this status: TRANSCRIPT_NOT_FOUND \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "TRANSCRIPT_NOT_FOUND"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Error envelope. Codes at this status: RATE_LIMITED, TOO_MANY_JOBS \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "RATE_LIMITED",
+                            "TOO_MANY_JOBS"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error envelope. Code at this status: INTERNAL_ERROR \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INTERNAL_ERROR"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/summaries": {
+            "post": {
+                "operationId": "createSummaryJob",
+                "summary": "Create a summary job",
+                "description": "Generates an article-style summary of the video in lang (use \"auto\" to keep the video's own language). Answers 202 with a job while it runs, or 200 with a finished job when a stored article satisfies the request. Generation costs 2 credits per hour of video (minimum 1 credit), charged by the job when it actually generates; cache hits and failures are free.",
+                "tags": [
+                    "summaries"
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SummaryRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Done immediately \u2014 a stored article satisfied the request; the job is already succeeded.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiJob"
+                                }
+                            }
+                        }
+                    },
+                    "202": {
+                        "description": "Accepted \u2014 the job is queued or running. Poll the Location URL every 5 seconds.",
+                        "headers": {
+                            "Location": {
+                                "description": "URL of the created job: /api/v1/jobs/{id}.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            },
+                            "Retry-After": {
+                                "description": "Seconds to wait before polling the job again (5).",
+                                "schema": {
+                                    "type": "integer"
+                                }
+                            }
+                        },
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiJob"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Error envelope. Code at this status: INVALID_REQUEST \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INVALID_REQUEST"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error envelope. Codes at this status: UNAUTHORIZED, INVALID_API_KEY \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "UNAUTHORIZED",
+                            "INVALID_API_KEY"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "402": {
+                        "description": "Error envelope. Code at this status: INSUFFICIENT_CREDITS \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INSUFFICIENT_CREDITS"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Error envelope. Codes at this status: RATE_LIMITED, TOO_MANY_JOBS \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "RATE_LIMITED",
+                            "TOO_MANY_JOBS"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error envelope. Code at this status: INTERNAL_ERROR \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INTERNAL_ERROR"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/jobs/{id}": {
+            "get": {
+                "operationId": "getJob",
+                "summary": "Poll a job",
+                "description": "Returns one of the caller's jobs. While it is queued or running the response asks to poll again after 5 seconds (Retry-After header). \"succeeded\" carries `result` \u2014 the same object the sync endpoint returns; \"failed\" carries `error` (JOB_INTERRUPTED means the server restarted mid-run and the credit hold was refunded). Free.",
+                "tags": [
+                    "jobs"
+                ],
+                "parameters": [
+                    {
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Job id returned by the create call."
+                        },
+                        "required": true,
+                        "description": "Job id returned by the create call.",
+                        "name": "id",
+                        "in": "path"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The job; one shape for every status.",
+                        "headers": {
+                            "Retry-After": {
+                                "description": "Present while the job is not terminal yet: poll again after this many seconds.",
+                                "schema": {
+                                    "type": "integer"
+                                }
+                            }
+                        },
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiJob"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error envelope. Codes at this status: UNAUTHORIZED, INVALID_API_KEY \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "UNAUTHORIZED",
+                            "INVALID_API_KEY"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Error envelope. Code at this status: JOB_NOT_FOUND \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "JOB_NOT_FOUND"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Error envelope. Code at this status: RATE_LIMITED \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "RATE_LIMITED"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error envelope. Code at this status: INTERNAL_ERROR \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INTERNAL_ERROR"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/articles": {
+            "get": {
+                "operationId": "searchArticles",
+                "summary": "Search saved articles",
+                "description": "Full-text and category search over the public article store. Free.",
+                "tags": [
+                    "articles"
+                ],
+                "parameters": [
+                    {
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200,
+                            "description": "Text to match against video titles."
+                        },
+                        "required": false,
+                        "description": "Text to match against video titles.",
+                        "name": "query",
+                        "in": "query"
+                    },
+                    {
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80,
+                            "description": "Category slug filter."
+                        },
+                        "required": false,
+                        "description": "Category slug filter.",
+                        "name": "category",
+                        "in": "query"
+                    },
+                    {
+                        "schema": {
+                            "type": "string",
+                            "minLength": 2,
+                            "maxLength": 16,
+                            "description": "Article language filter, e.g. \"en\"."
+                        },
+                        "required": false,
+                        "description": "Article language filter, e.g. \"en\".",
+                        "name": "lang",
+                        "in": "query"
+                    },
+                    {
+                        "schema": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "description": "1-based page number. Defaults to 1."
+                        },
+                        "required": false,
+                        "description": "1-based page number. Defaults to 1.",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "schema": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 50,
+                            "description": "Results per page, max 50. Defaults to 20."
+                        },
+                        "required": false,
+                        "description": "Results per page, max 50. Defaults to 20.",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "One page of articles.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ArticlesResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Error envelope. Code at this status: INVALID_REQUEST \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INVALID_REQUEST"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error envelope. Codes at this status: UNAUTHORIZED, INVALID_API_KEY \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "UNAUTHORIZED",
+                            "INVALID_API_KEY"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Error envelope. Code at this status: RATE_LIMITED \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "RATE_LIMITED"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error envelope. Code at this status: INTERNAL_ERROR \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INTERNAL_ERROR"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/credits": {
+            "get": {
+                "operationId": "getCredits",
+                "summary": "Credit balance",
+                "description": "The caller's remaining free monthly grant and purchased credits, plus tier progress. Free.",
+                "tags": [
+                    "credits"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The credit snapshot.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CreditSnapshot"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error envelope. Codes at this status: UNAUTHORIZED, INVALID_API_KEY \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "UNAUTHORIZED",
+                            "INVALID_API_KEY"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Error envelope. Code at this status: NOT_FOUND \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "NOT_FOUND"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Error envelope. Code at this status: RATE_LIMITED \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "RATE_LIMITED"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error envelope. Code at this status: INTERNAL_ERROR \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INTERNAL_ERROR"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/openapi.json": {
+            "get": {
+                "operationId": "getOpenapiDocument",
+                "summary": "This OpenAPI document",
+                "description": "The machine-readable contract of /api/v1 \u2014 the document you are reading. Public: no API key, no rate limit, cached for 5 minutes.",
+                "security": [],
+                "tags": [
+                    "meta"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The OpenAPI 3.1 document describing this API.",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "webhooks": {},
+    "x-error-codes": {
+        "INVALID_REQUEST": {
+            "status": 400,
+            "retryable": false,
+            "description": "The request body or query is invalid: bad types, missing required fields, an unknown video id format. Fix the input and retry; the message names the offending field."
+        },
+        "UNAUTHORIZED": {
+            "status": 401,
+            "retryable": false,
+            "description": "No API key was sent. Send it as \"Authorization: Bearer <key>\" or \"x-api-key\"."
+        },
+        "INVALID_API_KEY": {
+            "status": 401,
+            "retryable": false,
+            "description": "The key is not an unw_sk_ key, or it is unknown, revoked or expired. Create a new key at https://unwatched.click/en/developer/keys."
+        },
+        "FORBIDDEN": {
+            "status": 403,
+            "retryable": false,
+            "description": "The key is valid but your account is not allowed to perform this operation. Do not retry with the same account."
+        },
+        "INSUFFICIENT_CREDITS": {
+            "status": 402,
+            "retryable": false,
+            "description": "Your credit balance is too low for this operation. Top up credits on the site, or pick a cheaper operation (e.g. subtitles instead of a summary)."
+        },
+        "NOT_FOUND": {
+            "status": 404,
+            "retryable": false,
+            "description": "No such endpoint, or the referenced record does not exist. Check the path and ids against the API docs."
+        },
+        "TRANSCRIPT_NOT_FOUND": {
+            "status": 404,
+            "retryable": false,
+            "description": "No stored transcript for this video in the source language. Fetch subtitles first (POST /subtitles), then retry the translation."
+        },
+        "NO_SUBTITLES": {
+            "status": 422,
+            "retryable": false,
+            "description": "The video has no usable subtitle track, or the requested language is not among them. List tracks (GET /videos/:id/tracks) and pick an available language, or try another video."
+        },
+        "VIDEO_UNAVAILABLE": {
+            "status": 422,
+            "retryable": false,
+            "description": "The video cannot be fetched from any route we have: it is private, removed, or region-blocked everywhere we can reach. Do not retry the same video."
+        },
+        "TRANSCRIPT_EMPTY": {
+            "status": 422,
+            "retryable": false,
+            "description": "The video has a subtitle track for the requested language, but it parsed to no usable text (empty or malformed captions). Try another language from GET /videos/:id/tracks."
+        },
+        "UNPROCESSABLE": {
+            "status": 422,
+            "retryable": false,
+            "description": "The video exists but cannot be processed: private, region-blocked, empty transcript, and similar. The request was fine \u2014 nothing to fix; try a different video."
+        },
+        "MEMBERS_ONLY": {
+            "status": 422,
+            "retryable": false,
+            "description": "The video is only available to channel members or buyers, so its subtitles cannot be fetched."
+        },
+        "RATE_LIMITED": {
+            "status": 429,
+            "retryable": true,
+            "description": "Too many requests for this key in the current window. Slow down and retry after the window resets; use retryAfterSeconds when present."
+        },
+        "SERVICE_BUSY": {
+            "status": 503,
+            "retryable": true,
+            "description": "Extraction capacity is saturated. Retry the same request after retryAfterSeconds; repeated billable operations are idempotent within a UTC day and will not double-charge."
+        },
+        "EXTRACTION_FAILED": {
+            "status": 502,
+            "retryable": true,
+            "description": "Fetching data from YouTube (subtitles, metadata, frames) failed. Retry later; if it keeps failing, the video may be unavailable from every region we can reach."
+        },
+        "GENERATION_FAILED": {
+            "status": 502,
+            "retryable": true,
+            "description": "The AI step (summary or translation) failed after the transcript was available. Retry; a later successful run is billed normally, cached results are free."
+        },
+        "INTERNAL_ERROR": {
+            "status": 500,
+            "retryable": true,
+            "description": "Unexpected server error. Retry once after a short delay; if it repeats, report it \u2014 the details are in our server logs, not in the response."
+        },
+        "JOB_NOT_FOUND": {
+            "status": 404,
+            "retryable": false,
+            "description": "No job exists with this id, or it belongs to another account. Use the id returned by the create call."
+        },
+        "JOB_INTERRUPTED": {
+            "status": 503,
+            "retryable": true,
+            "description": "The server restarted mid-job; credits were refunded. Retry the same request."
+        },
+        "TOO_MANY_JOBS": {
+            "status": 429,
+            "retryable": true,
+            "description": "At most 3 jobs may be queued or running per account; wait for one to finish (poll GET /jobs/{id}) then retry."
+        }
+    }
+}

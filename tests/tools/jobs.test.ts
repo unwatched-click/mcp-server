@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { setJobRetryAfterSeconds } from '../../src/api/contract.js';
 import { ApiError, CLIENT_ERROR_CODES } from '../../src/api/errors.js';
-import type { ApiJob } from '../../src/api/types.js';
+import type { SummaryJob } from '../../src/api/types.js';
 import { JobTimeoutError, waitForJob } from '../../src/tools/shared/jobs.js';
 import { createFakeApi } from './fake-api.js';
 
-function makeJob(overrides: Partial<ApiJob> = {}): ApiJob {
+function makeJob(overrides: Partial<SummaryJob> = {}): SummaryJob {
 	return {
 		id: 'job_123',
 		kind: 'summary',

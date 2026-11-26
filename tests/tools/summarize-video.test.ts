@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../src/api/errors.js';
-import type { ApiJob, SummaryResult } from '../../src/api/types.js';
+import type { SummaryJob, SummaryResult } from '../../src/api/types.js';
 import { summarizeVideoHandler } from '../../src/tools/summarize-video/handler.js';
 import { createFakeApi } from './fake-api.js';
 
@@ -14,10 +14,13 @@ const summaryResult: SummaryResult = {
 		title: 'Never Gonna Give You Up, explained',
 		intro: "The video that became the internet's favorite bait-and-switch.",
 		sections: [
-			{ heading: 'The prank', body: 'The link looks like something else entirely.' },
+			{ heading: 'The prank', content: 'The link looks like something else entirely.' },
 		],
 		keyPoints: ['Released in 1987', 'Became known as rickrolling in 2007'],
 		conclusion: 'A harmless internet classic.',
+		lang: 'en',
+		videoId: VIDEO_ID,
+		summaryMode: 'standard',
 	},
 	video: {
 		videoId: VIDEO_ID,
@@ -30,7 +33,7 @@ const summaryResult: SummaryResult = {
 	usage: { creditsCharged: 2, creditsRemaining: 17 },
 };
 
-function makeSummaryJob(overrides: Partial<ApiJob> = {}): ApiJob {
+function makeSummaryJob(overrides: Partial<SummaryJob> = {}): SummaryJob {
 	return {
 		id: 'job_sum_1',
 		kind: 'summary',
@@ -59,14 +62,17 @@ const SUMMARY_JSON = `{
     "sections": [
       {
         "heading": "The prank",
-        "body": "The link looks like something else entirely."
+        "content": "The link looks like something else entirely."
       }
     ],
     "keyPoints": [
       "Released in 1987",
       "Became known as rickrolling in 2007"
     ],
-    "conclusion": "A harmless internet classic."
+    "conclusion": "A harmless internet classic.",
+    "lang": "en",
+    "videoId": "dQw4w9WgXcQ",
+    "summaryMode": "standard"
   },
   "cached": false,
   "usage": {

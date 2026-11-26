@@ -15,7 +15,10 @@ const CREDITS_JSON = `{
   "progress": {
     "earnedTier": "FREE",
     "nextTier": "PREMIUM",
-    "unitsToNextTier": 4870
+    "currentThresholdUnits": 0,
+    "nextThresholdUnits": 5000,
+    "unitsToNextTier": 4870,
+    "percent": 3
   }
 }`;
 
@@ -31,7 +34,14 @@ describe('get_credit_balance handler', () => {
 			totalUnits: 130,
 			lifetimePurchasedUnits: 0,
 			nextDailyResetAt: '2026-12-01T00:00:00.000Z',
-			progress: { earnedTier: 'FREE', nextTier: 'PREMIUM', unitsToNextTier: 4870 },
+			progress: {
+				earnedTier: 'FREE',
+				nextTier: 'PREMIUM',
+				currentThresholdUnits: 0,
+				nextThresholdUnits: 5000,
+				unitsToNextTier: 4870,
+				percent: 3,
+			},
 		});
 
 		const result = await getCreditBalanceHandler({}, api);

@@ -120,6 +120,8 @@ UNWATCHED_API_KEY=unw_sk_your_key npm run inspect
 
 `npm run inspect` starts the [MCP Inspector](https://github.com/modelcontextprotocol/inspector) against the built server; build first and have an API key ready.
 
+When the REST API contract changes, run `npm run openapi:pull && npm run openapi:types` to refresh `openapi/openapi.json` and regenerate `src/api/generated/openapi.ts`.
+
 ## Self-hosting (Streamable HTTP)
 
 The server can serve the Streamable HTTP transport instead of stdio:

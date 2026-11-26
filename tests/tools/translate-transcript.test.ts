@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../src/api/errors.js';
-import type { ApiJob, TranslateResult } from '../../src/api/types.js';
+import type { TranslateResult, TranslationJob } from '../../src/api/types.js';
 import { translateTranscriptHandler } from '../../src/tools/translate-transcript/handler.js';
 import { createFakeApi } from './fake-api.js';
 
@@ -19,7 +19,7 @@ const translateResult: TranslateResult = {
 	usage: { creditsCharged: 1, creditsRemaining: 18 },
 };
 
-function makeTranslationJob(overrides: Partial<ApiJob> = {}): ApiJob {
+function makeTranslationJob(overrides: Partial<TranslationJob> = {}): TranslationJob {
 	return {
 		id: 'job_tr_1',
 		kind: 'translation',

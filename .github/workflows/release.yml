@@ -1,0 +1,101 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  release:
+    name: Publish npm package and MCP registry entry
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Check that the tag and all metadata versions match
+        run: |
+          VERSION=$(jq -r .version server.json)
+          PACKAGE_VERSION=$(jq -r .version package.json)
+          REGISTRY_PACKAGE_VERSION=$(jq -r '.packages[0].version' server.json)
+          if [ "${GITHUB_REF_NAME#v}" != "$VERSION" ] \
+              || [ "$PACKAGE_VERSION" != "$VERSION" ] \
+              || [ "$REGISTRY_PACKAGE_VERSION" != "$VERSION" ]; then
+            echo "::error::Version mismatch: tag ${GITHUB_REF_NAME#v}, package.json $PACKAGE_VERSION, server.json $VERSION, server.json packages[0] $REGISTRY_PACKAGE_VERSION"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "PACKAGE=$(jq -r .name package.json)" >> "$GITHUB_ENV"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      # npm 10 (bundled with Node 22) crashes resolving vitest 4's optional peer
+      # dependencies, and trusted publishing needs npm CLI >= 11.5.
+      - name: Upgrade npm
+        run: npm install -g npm@11
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # npm trusted publishing authenticates with this workflow's OIDC token;
+      # no NPM_TOKEN secret is involved. Trusted publishing must be configured
+      # on npmjs.com first: package settings for "unwatched-click-mcp" ->
+      # Trusted Publisher, pointing at repository unwatched-click/mcp-server
+      # and workflow .github/workflows/release.yml.
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+
+      # The MCP registry rejects a version that is not on npm yet, and npm can
+      # lag a few minutes after publish.
+      - name: Wait for the package to appear on npm
+        run: |
+          for i in $(seq 1 30); do
+            if [ "$(npm view "$PACKAGE@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
+              echo "$PACKAGE@$VERSION is available on npm."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::$PACKAGE@$VERSION did not appear on npm within 5 minutes."
+          exit 1
+
+      # Pinned so a new upstream release cannot change what runs with id-token: write.
+      - name: Install mcp-publisher
+        env:
+          MCP_PUBLISHER_VERSION: v1.8.16
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+
+      - name: Authenticate to the MCP Registry
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish server.json
+        run: ./mcp-publisher publish
+
+      - name: Verify the version is live and latest on the MCP Registry
+        run: |
+          for i in $(seq 1 6); do
+            if curl -fsSL "https://registry.modelcontextprotocol.io/v0/servers/io.github.unwatched-click%2Fmcp-server/versions/$VERSION" \
+                | jq -e --arg v "$VERSION" \
+                  '.server.version == $v and ._meta["io.modelcontextprotocol.registry/official"].isLatest == true' > /dev/null; then
+              echo "$VERSION is live on the MCP Registry and marked as the latest version."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::$VERSION was published to the MCP Registry but is not marked isLatest: true."
+          exit 1

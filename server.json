@@ -1,0 +1,52 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.unwatched-click/mcp-server",
+  "title": "Unwatched",
+  "description": "Subtitles, frames, metadata, translations and AI summaries of YouTube videos for AI agents.",
+  "websiteUrl": "https://unwatched.click/en/api-docs",
+  "repository": {
+    "url": "https://github.com/unwatched-click/mcp-server",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.unwatched.click/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {api_key}",
+          "description": "Unwatched API key as a Bearer token. Create one at https://unwatched.click/en/developer/keys",
+          "isRequired": true,
+          "isSecret": true,
+          "variables": {
+            "api_key": {
+              "description": "Unwatched API key (unw_sk_...)",
+              "isRequired": true,
+              "isSecret": true
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "unwatched-click-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "UNWATCHED_API_KEY",
+          "description": "Unwatched API key (unw_sk_...) from https://unwatched.click/en/developer/keys",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

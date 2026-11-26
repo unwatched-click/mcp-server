@@ -22,6 +22,7 @@
     "inspect": "npx @modelcontextprotocol/inspector node build/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "release": "node scripts/release.mjs",
     "openapi:pull": "node -e \"import('node:fs').then(async fs => { const r = await fetch('https://api.unwatched.click/api/v1/openapi.json'); if (!r.ok) throw new Error('HTTP ' + r.status); fs.mkdirSync('openapi', { recursive: true }); fs.writeFileSync('openapi/openapi.json', JSON.stringify(await r.json(), null, 2) + '\\n'); })\"",
     "openapi:types": "openapi-typescript openapi/openapi.json -o src/api/generated/openapi.ts"
   },

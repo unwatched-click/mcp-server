@@ -15,6 +15,8 @@ type ErrorGuidance = string | ((err: ApiError) => string);
 /** Checked against the generated OpenAPI `ErrorCode` enum so stale codes fail typecheck. */
 const API_ERROR_GUIDANCE: Partial<Record<ErrorCode, ErrorGuidance>> = {
 	UNAUTHORIZED: KEY_GUIDANCE,
+	// The backend message says whether the key is unknown, revoked or expired.
+	INVALID_API_KEY: (err) => `${err.message} ${KEY_GUIDANCE}`,
 	INSUFFICIENT_CREDITS: `Not enough Unwatched credits for this operation. Top up at ${PRICING_URL}`,
 	RATE_LIMITED: (err) => typeof err.retryAfterSeconds === 'number'
 		? `Rate limited by the Unwatched API. Retry after ${err.retryAfterSeconds} seconds.`

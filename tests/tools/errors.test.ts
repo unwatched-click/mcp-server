@@ -10,6 +10,11 @@ describe('describeError', () => {
 		expect(describeError(new ApiError('UNAUTHORIZED', 'Invalid API key', 401))).toBe(KEY_TEXT);
 	});
 
+	it('keeps the reason for a rejected key and adds the fix', () => {
+		expect(describeError(new ApiError('INVALID_API_KEY', 'API key has been revoked.', 401)))
+			.toBe(`API key has been revoked. ${KEY_TEXT}`);
+	});
+
 	it('points insufficient credits at the pricing page', () => {
 		expect(describeError(new ApiError('INSUFFICIENT_CREDITS', 'Insufficient credits: 2 required, 1 available', 402)))
 			.toBe('Not enough Unwatched credits for this operation. Top up at https://unwatched.click/en/pricing');

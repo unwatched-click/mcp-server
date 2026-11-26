@@ -2,7 +2,7 @@
 
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for [Unwatched](https://unwatched.click) that lets AI agents read YouTube videos through the [Unwatched REST API](https://unwatched.click/en/api-docs). It exposes the API's video-reading features as eight MCP tools: subtitles with timestamps, available subtitle tracks, video metadata, frames at given seconds, transcript translation, AI article summaries, search over already-generated articles, and the remaining credit balance.
 
-The server runs locally over stdio via `npx`, or a Streamable HTTP client can connect to the hosted endpoint once it is available.
+The server runs locally over stdio via `npx`, or any Streamable HTTP client can connect to the hosted endpoint.
 
 ## Requirements
 
@@ -57,16 +57,16 @@ The server uses the standard MCP stdio transport: launch it with command `npx`, 
 
 ## Hosted server (Streamable HTTP)
 
-The hosted option is planned at:
+The hosted server runs at:
 
 ```
 https://mcp.unwatched.click/mcp
 ```
 
-It is not live yet; until it is, use the local stdio option above. Once available, it will use the [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports) transport with your API key in the `Authorization: Bearer` header. With Claude Code:
+It uses the [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports) transport (stateless, POST only) with your API key in the `Authorization: Bearer` header. Nothing to install. With Claude Code:
 
 ```bash
-claude mcp add --transport http unwatched --url https://mcp.unwatched.click/mcp --header "Authorization: Bearer unw_sk_your_key"
+claude mcp add --transport http unwatched https://mcp.unwatched.click/mcp --header "Authorization: Bearer unw_sk_your_key"
 ```
 
 For clients configured by JSON, set the server URL to `https://mcp.unwatched.click/mcp` and add the request header `Authorization: Bearer <your API key>`.

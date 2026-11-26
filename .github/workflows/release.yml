@@ -56,8 +56,16 @@ jobs:
       # on npmjs.com first: package settings for "unwatched-click-mcp" ->
       # Trusted Publisher, pointing at repository unwatched-click/mcp-server
       # and workflow .github/workflows/release.yml.
+      # 0.1.0 was published by hand (npm only allows configuring a trusted
+      # publisher on an existing package), so an already-published version
+      # is skipped instead of failing the registry steps below.
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        run: |
+          if [ "$(npm view "$PACKAGE@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
+            echo "$PACKAGE@$VERSION is already on npm, skipping publish."
+          else
+            npm publish --provenance --access public
+          fi
 
       # The MCP registry rejects a version that is not on npm yet, and npm can
       # lag a few minutes after publish.

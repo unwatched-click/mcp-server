@@ -377,7 +377,11 @@ export interface components {
             videoId?: string;
             /** @description Subtitle language code, e.g. "en". Defaults to the best available track. */
             lang?: string;
-        };
+        } & ({
+            url: string;
+        } | {
+            videoId: string;
+        });
         SubtitlesResult: {
             videoId: string;
             /** @description Language actually returned. */
@@ -412,7 +416,11 @@ export interface components {
             width?: number;
             /** @description Include the frame bytes inline as base64. */
             includeBase64?: boolean;
-        };
+        } & ({
+            url: string;
+        } | {
+            videoId: string;
+        });
         FramesResult: {
             videoId: string;
             video: components["schemas"]["VideoInfo"];
@@ -458,7 +466,11 @@ export interface components {
             tier?: string;
             /** @description Language of the source subtitles, when it differs from the article language. */
             sourceLang?: string;
-        };
+        } & ({
+            url: string;
+        } | {
+            videoId: string;
+        });
         SummaryResult: {
             article: components["schemas"]["SummaryArticle"];
             video: components["schemas"]["VideoInfo"];

@@ -552,7 +552,35 @@
                         "maxLength": 16,
                         "description": "Subtitle language code, e.g. \"en\". Defaults to the best available track."
                     }
-                }
+                },
+                "allOf": [
+                    {
+                        "anyOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "url": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "url"
+                                ]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "videoId": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "videoId"
+                                ]
+                            }
+                        ]
+                    }
+                ]
             },
             "SubtitlesResult": {
                 "type": "object",
@@ -667,7 +695,35 @@
                         "type": "boolean",
                         "description": "Include the frame bytes inline as base64."
                     }
-                }
+                },
+                "allOf": [
+                    {
+                        "anyOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "url": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "url"
+                                ]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "videoId": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "videoId"
+                                ]
+                            }
+                        ]
+                    }
+                ]
             },
             "FramesResult": {
                 "type": "object",
@@ -827,6 +883,34 @@
                 },
                 "required": [
                     "lang"
+                ],
+                "allOf": [
+                    {
+                        "anyOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "url": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "url"
+                                ]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "videoId": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "videoId"
+                                ]
+                            }
+                        ]
+                    }
                 ]
             },
             "SummaryResult": {

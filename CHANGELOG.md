@@ -6,12 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-26
+
+### Fixed
+
+- A rejected API key (`INVALID_API_KEY`: unknown, revoked or expired) now keeps the reason and tells the agent where to get a new key.
+- README: the hosted server at `https://mcp.unwatched.click/mcp` is live; fixed the Claude Code command (no `--url` flag).
+
+## [0.1.0] - 2026-11-26
+
 ### Changed
 
 - Switched `summarize_video` and `translate_transcript` to the asynchronous job API (`POST /api/v1/summaries` and `POST /api/v1/transcripts/translate` returning `202` + `GET /api/v1/jobs/{id}` polling), with MCP progress notifications, request cancellation via `AbortSignal`, transient retry/timeout handling, and updated error guidance.
 - Reduced the default HTTP request timeout in `ApiClient` from 10 minutes to 60 seconds and added `AbortSignal` support across API client methods.
-
-## [0.1.0] - 2026-11-26
 
 ### Added
 

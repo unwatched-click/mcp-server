@@ -8,7 +8,7 @@
     "url": "https://github.com/unwatched-click/mcp-server",
     "source": "github"
   },
-  "version": "0.1.2",
+  "version": "0.2.0",
   "remotes": [
     {
       "type": "streamable-http",
@@ -35,7 +35,7 @@
     {
       "registryType": "npm",
       "identifier": "unwatched-click-mcp",
-      "version": "0.1.2",
+      "version": "0.2.0",
       "transport": {
         "type": "stdio"
       },

@@ -3,7 +3,7 @@ import type { UnwatchedApi } from '../../api/contract.js';
 import { summarizeVideoHandler } from './handler.js';
 import { summarizeVideoInputSchema } from './schema.js';
 
-export function registerSummarizeVideoTool(server: McpServer, api: UnwatchedApi): void {
+export function registerSummarizeVideoTool(server: McpServer, api: UnwatchedApi, pollShutdownSignal?: AbortSignal): void {
 	server.registerTool('summarize_video', {
 		title: 'Summarize a YouTube video',
 		description:
@@ -13,5 +13,5 @@ export function registerSummarizeVideoTool(server: McpServer, api: UnwatchedApi)
 			+ 'reports progress while running. Slower than get_video_subtitles — prefer the '
 			+ 'subtitles tool when you only need the raw text.',
 		inputSchema: summarizeVideoInputSchema,
-	}, (input, extra) => summarizeVideoHandler(input, api, extra));
+	}, (input, extra) => summarizeVideoHandler(input, api, { ...extra, pollShutdownSignal }));
 }

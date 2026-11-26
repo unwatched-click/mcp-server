@@ -25,6 +25,7 @@ export interface WaitForJobOptions {
 
 export interface JobToolExtra {
 	signal?: AbortSignal;
+	pollShutdownSignal?: AbortSignal;
 	_meta?: {
 		progressToken?: string | number;
 	};
@@ -183,9 +184,15 @@ export async function resolveJob(
 			}
 			: undefined;
 
+		const requestSignal = waitOptions?.signal ?? extra?.signal;
+		const pollShutdownSignal = extra?.pollShutdownSignal;
+		// Keep the SDK request alive so the tool can send retry guidance after polling stops.
+		const signal = requestSignal && pollShutdownSignal
+			? AbortSignal.any([requestSignal, pollShutdownSignal])
+			: requestSignal ?? pollShutdownSignal;
 		finalJob = await waitForJob(api, initialJob, {
 			...waitOptions,
-			signal: waitOptions?.signal ?? extra?.signal,
+			signal,
 			onProgress: waitOptions?.onProgress ?? onProgress,
 		});
 	}

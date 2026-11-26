@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- The vendored OpenAPI spec now requires `url` or `videoId` on subtitle, summary and frame requests (`anyOf`).
+
+### Fixed
+
+- README: Windsurf config path now points at Devin Desktop's `~/.config/devin/mcp_config.json`.
+- On shutdown, hosted HTTP stops accepting new requests, gives in-flight calls time to finish, and tells agents how to retry jobs that are still running on the API.
+
 ## [0.1.1] - 2026-11-26
 
 ### Fixed

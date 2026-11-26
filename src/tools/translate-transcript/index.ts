@@ -3,7 +3,7 @@ import type { UnwatchedApi } from '../../api/contract.js';
 import { translateTranscriptHandler } from './handler.js';
 import { translateTranscriptInputSchema } from './schema.js';
 
-export function registerTranslateTranscriptTool(server: McpServer, api: UnwatchedApi): void {
+export function registerTranslateTranscriptTool(server: McpServer, api: UnwatchedApi, pollShutdownSignal?: AbortSignal): void {
 	server.registerTool('translate_transcript', {
 		title: 'Translate a transcript',
 		description:
@@ -12,5 +12,5 @@ export function registerTranslateTranscriptTool(server: McpServer, api: Unwatche
 			+ 'Priced per hour of video; cached translations are free. May take several minutes '
 			+ 'for uncached transcripts and reports progress while running.',
 		inputSchema: translateTranscriptInputSchema,
-	}, (input, extra) => translateTranscriptHandler(input, api, extra));
+	}, (input, extra) => translateTranscriptHandler(input, api, { ...extra, pollShutdownSignal }));
 }

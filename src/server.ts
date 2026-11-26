@@ -3,7 +3,7 @@ import type { UnwatchedApi } from './api/contract.js';
 import { registerAllTools } from './tools/index.js';
 import { version } from './utils/version.js';
 
-export function createServer(api: UnwatchedApi): McpServer {
+export function createServer(api: UnwatchedApi, pollShutdownSignal?: AbortSignal): McpServer {
 	const server = new McpServer(
 		{ name: 'unwatched', version },
 		{
@@ -14,6 +14,6 @@ export function createServer(api: UnwatchedApi): McpServer {
 				+ 'is faster and cheaper than summarize_video.',
 		},
 	);
-	registerAllTools(server, api);
+	registerAllTools(server, api, pollShutdownSignal);
 	return server;
 }

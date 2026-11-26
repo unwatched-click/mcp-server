@@ -49,7 +49,7 @@ Open `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project-level) and add
 
 ### Windsurf
 
-Open `~/.codeium/windsurf/mcp_config.json` (Windows: `%USERPROFILE%\.codeium\windsurf\mcp_config.json`) and add the same `mcpServers` block as in the Claude Desktop example.
+Windsurf is now Devin Desktop. Open `~/.config/devin/mcp_config.json` (Windows: `%APPDATA%\devin\mcp_config.json`) or the project's `.devin/mcp_config.json` and add the same `mcpServers` block as in the Claude Desktop example. Older Windsurf builds read `~/.codeium/windsurf/mcp_config.json`.
 
 ### Other MCP clients
 

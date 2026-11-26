@@ -10,13 +10,13 @@ import { registerSearchArticlesTool } from './search-articles/index.js';
 import { registerGetCreditBalanceTool } from './get-credit-balance/index.js';
 
 /** Registers every Unwatched tool on `server`. */
-export function registerAllTools(server: McpServer, api: UnwatchedApi): void {
+export function registerAllTools(server: McpServer, api: UnwatchedApi, pollShutdownSignal?: AbortSignal): void {
 	registerGetVideoSubtitlesTool(server, api);
 	registerListSubtitleTracksTool(server, api);
 	registerGetVideoInfoTool(server, api);
 	registerGetVideoFrameTool(server, api);
-	registerTranslateTranscriptTool(server, api);
-	registerSummarizeVideoTool(server, api);
+	registerTranslateTranscriptTool(server, api, pollShutdownSignal);
+	registerSummarizeVideoTool(server, api, pollShutdownSignal);
 	registerSearchArticlesTool(server, api);
 	registerGetCreditBalanceTool(server, api);
 }

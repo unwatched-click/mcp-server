@@ -1,3 +1,4 @@
+import { createServer as createNodeServer } from 'node:http';
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { ApiClient } from '../http/client.js';
@@ -5,6 +6,8 @@ import { createServer } from '../server.js';
 import { version } from '../utils/version.js';
 
 const KEYS_URL = 'https://unwatched.click/en/developer/keys';
+const POLL_GRACE_MS = 5_000;
+const HTTP_DRAIN_TIMEOUT_MS = 10_000;
 
 /** `Authorization: Bearer <key>` (what MCP clients can set) or `x-api-key` (friendlier for curl). */
 function readApiKey(req: Request): string | null {
@@ -19,8 +22,13 @@ function readApiKey(req: Request): string | null {
 }
 
 /** A fresh server + transport per request: no session state, no GET/SSE stream to buffer. */
-async function handleMcpRequest(req: Request, res: Response, apiKey: string): Promise<void> {
-	const server = createServer(new ApiClient(apiKey));
+async function handleMcpRequest(
+	req: Request,
+	res: Response,
+	apiKey: string,
+	pollShutdownSignal?: AbortSignal,
+): Promise<void> {
+	const server = createServer(new ApiClient(apiKey), pollShutdownSignal);
 	const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
 	// Tear both down when the client disconnects, so an aborted request
@@ -63,9 +71,19 @@ function errorStatus(error: unknown): number {
  * Responses stream (SSE), not a single JSON body, so long tool calls can
  * push progress notifications over the same response.
  */
-export function createHttpApp(): Express {
+export function createHttpApp(options?: {
+	isDraining: () => boolean;
+	pollShutdownSignal: AbortSignal;
+}): Express {
 	const app = express();
 	app.set('trust proxy', 1);
+	app.use((_req: Request, res: Response, next: NextFunction) => {
+		if (options?.isDraining()) {
+			res.set({ Connection: 'close', 'Retry-After': '1' }).status(503).end();
+			return;
+		}
+		next();
+	});
 	app.use(express.json({ limit: '1mb' }));
 
 	app.get('/health', (_req: Request, res: Response) => {
@@ -103,7 +121,7 @@ export function createHttpApp(): Express {
 			});
 			return;
 		}
-		await handleMcpRequest(req, res, apiKey);
+		await handleMcpRequest(req, res, apiKey, options?.pollShutdownSignal);
 	});
 
 	// Stateless mode has no server-initiated stream to attach to and no
@@ -132,14 +150,50 @@ export function createHttpApp(): Express {
 	return app;
 }
 
-export async function runHttp(): Promise<void> {
-	const app = createHttpApp();
-	const port = Number(process.env.PORT ?? 3002);
-	const server = app.listen(port, () => {
-		console.error(`unwatched-click-mcp HTTP server listening on :${port}`);
+export function startHttpServer(port: number) {
+	const pollShutdown = new AbortController();
+	let closing: Promise<void> | undefined;
+	const app = createHttpApp({
+		isDraining: () => closing !== undefined,
+		pollShutdownSignal: pollShutdown.signal,
 	});
+	const server = createNodeServer(app);
 	// Runs behind a reverse proxy: keep idle keep-alive sockets open longer than
 	// the proxy does, so it never reuses a socket Node has already closed.
 	server.keepAliveTimeout = 75_000;
 	server.headersTimeout = 76_000;
+	server.prependListener('request', (_req, res) => {
+		res.once('finish', () => {
+			// Connections that become idle during the drain can outlive server.close().
+			if (closing) setImmediate(() => server.closeIdleConnections());
+		});
+	});
+	server.listen(port, () => {
+		console.error(`unwatched-click-mcp HTTP server listening on :${port}`);
+	});
+
+	function shutdown(): Promise<void> {
+		closing ??= new Promise<void>((resolve, reject) => {
+			const pollTimer = setTimeout(() => {
+				pollShutdown.abort(new DOMException(
+					'The MCP server is restarting. The API job can finish in the background. Retry this tool with the same input to retrieve the result.',
+					'AbortError',
+				));
+			}, POLL_GRACE_MS);
+			const drainTimer = setTimeout(() => {
+				server.closeAllConnections();
+				reject(new Error('MCP HTTP shutdown timed out'));
+			}, HTTP_DRAIN_TIMEOUT_MS);
+
+			server.close((error) => {
+				clearTimeout(pollTimer);
+				clearTimeout(drainTimer);
+				if (error) reject(error);
+				else resolve();
+			});
+		});
+		return closing;
+	}
+
+	return { server, shutdown };
 }

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Hosted OAuth discovery and sign-in, with HTTP challenges for missing or expired credentials and tool-level reauthorization when a token expires during a call.
+- Explicit read-only, destructive and open-world annotations on every tool, plus OAuth security metadata on hosted tools.
+
+### Changed
+
+- Tool descriptions state credit costs and cache behavior. Insufficient-credit errors link to the informational pricing page.
+
 ## [0.1.2] - 2026-11-26
 
 ### Changed

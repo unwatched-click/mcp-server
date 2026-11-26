@@ -7,7 +7,7 @@ The server runs locally over stdio via `npx`, or any Streamable HTTP client can 
 ## Requirements
 
 - Node.js 20 or newer (for the local stdio server)
-- An Unwatched API key — create one at https://unwatched.click/en/developer/keys. Keys look like `unw_sk_...` and should be treated as secrets.
+- An Unwatched account for hosted OAuth, or an Unwatched API key for stdio or HTTP header authentication. Create keys at https://unwatched.click/en/developer/keys.
 
 ## Quick Start
 
@@ -63,13 +63,19 @@ The hosted server runs at:
 https://mcp.unwatched.click/mcp
 ```
 
-It uses the [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports) transport (stateless, POST only) with your API key in the `Authorization: Bearer` header. Nothing to install. With Claude Code:
+The server uses [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports) (stateless). Add the URL to your client and sign in to Unwatched with OAuth.
+
+- **Claude.ai** Open **Customize → Connectors** and add a custom web connector. Enter the server URL and connect. [Claude connector setup](https://support.claude.com/en/articles/11176164-use-connectors-to-extend-claude-s-capabilities)
+- **ChatGPT** Open **Plugins → Add custom MCP server**, enter the server URL, and select **OAuth**. Use dynamic client registration and sign in when prompted. [ChatGPT custom MCP setup](https://developers.openai.com/api/docs/guides/custom-mcp-server)
+- **Claude Code** Run the following command, then use `/mcp` in Claude Code to sign in. [Claude Code MCP setup](https://code.claude.com/docs/en/mcp)
 
 ```bash
-claude mcp add --transport http unwatched https://mcp.unwatched.click/mcp --header "Authorization: Bearer unw_sk_your_key"
+claude mcp add --transport http unwatched https://mcp.unwatched.click/mcp
 ```
 
-For clients configured by JSON, set the server URL to `https://mcp.unwatched.click/mcp` and add the request header `Authorization: Bearer <your API key>`.
+- **Cursor** Add `"unwatched": { "url": "https://mcp.unwatched.click/mcp" }` under `mcpServers` in `.cursor/mcp.json`. Select the server in Cursor and sign in. [Cursor MCP setup](https://cursor.com/docs/mcp)
+
+Clients that support custom request headers can still send an API key as `Authorization: Bearer <your API key>`. In Claude Code, add `--header "Authorization: Bearer unw_sk_your_key"` to the command above.
 
 ## Getting an API key
 
@@ -86,7 +92,7 @@ Sign in at https://unwatched.click and open https://unwatched.click/en/developer
 | `translate_transcript` | Translate an already-fetched transcript into another language, keeping timestamps. Run `get_video_subtitles` for the source language first. | Charged per hour of video; cached translations are free. |
 | `summarize_video` | Generate a structured article from a video — title, intro, sections, key points, conclusion — in the requested language. Slower than `get_video_subtitles`; prefer the subtitles tool when you only need the raw text. | Charged per hour of video; an already-generated article is returned free. |
 | `search_articles` | Search the articles already generated on unwatched.click by title text, category and language. Use it before `summarize_video` to check whether a video has already been processed. | Free |
-| `get_credit_balance` | Remaining pay-as-you-go credits on the account the API key belongs to. | Free |
+| `get_credit_balance` | Remaining credits on the connected account. | Free |
 
 `summarize_video` and `translate_transcript` run asynchronously for uncached videos and may take several minutes. Cached results return immediately; otherwise the server polls the job until completion, sending MCP `notifications/progress` updates when the client provides a `progressToken` and stopping immediately if the request is cancelled. If a call hits the client-side wait limit (15 minutes), the job keeps running server-side — calling the tool again with the same inputs re-attaches to the active job.
 
@@ -98,9 +104,11 @@ Unwatched is pay-as-you-go: you buy credits and the tools marked as charged abov
 
 | Environment variable | Required | Default | Description |
 |----------------------|----------|---------|-------------|
-| `UNWATCHED_API_KEY` | Yes | — | Unwatched API key (`unw_sk_...`). Create one at https://unwatched.click/en/developer/keys. |
+| `UNWATCHED_API_KEY` | Stdio only | — | Unwatched API key (`unw_sk_...`). Create one at https://unwatched.click/en/developer/keys. |
 | `UNWATCHED_API_BASE` | No | `https://api.unwatched.click` | Base URL of the Unwatched REST API. |
 | `MCP_TRANSPORT` | No | `stdio` | Transport to serve: `stdio` or `http`. |
+| `MCP_PUBLIC_URL` | No | `https://mcp.unwatched.click` | Public HTTP base URL without `/mcp`. The resource URL advertised to OAuth clients is this base plus `/mcp`. |
+| `MCP_AUTH_SERVER` | No | `https://api.unwatched.click` | OAuth issuer advertised to HTTP clients. Keep the default when using the official API, which issues and validates the tokens. |
 | `PORT` | No | `3002` | Port to listen on in `http` mode. |
 | `GLAMA_CLAIM_TOKEN` | No | — | Claim token for the Glama directory listing of the hosted deployment. Not used in local stdio mode. |
 | `MCPRUSH_CLAIM_TOKEN` | No | — | Claim token for the MCPRush directory listing of the hosted deployment. Not used in local stdio mode. |
@@ -134,7 +142,7 @@ npm run build
 MCP_TRANSPORT=http PORT=3002 node build/index.js
 ```
 
-`npm run http` does the same. The server listens on `PORT` (default 3002) and expects the same `Authorization: Bearer <API key>` header as the hosted deployment. Point a Streamable HTTP MCP client at it.
+`npm run http` does the same. The server listens on `PORT` (default 3002). Set `MCP_PUBLIC_URL` to the public base URL of your instance. The official issuer currently issues OAuth tokens for `https://mcp.unwatched.click/mcp`. For a self-hosted URL using the official API, connect with `Authorization: Bearer <your API key>`. OAuth on a custom URL requires an issuer and API configured for that exact resource.
 
 With Docker:
 

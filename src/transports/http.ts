@@ -1,34 +1,92 @@
+import { createHash } from 'node:crypto';
 import { createServer as createNodeServer } from 'node:http';
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { ApiError } from '../api/errors.js';
 import { ApiClient } from '../http/client.js';
 import { createServer } from '../server.js';
 import { version } from '../utils/version.js';
 
 const KEYS_URL = 'https://unwatched.click/en/developer/keys';
+const RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
+const MCP_SCOPE = 'mcp';
+const OAUTH_TOOL_META = { securitySchemes: [{ type: 'oauth2', scopes: [MCP_SCOPE] }] };
+const OAUTH_VALIDATION_TIMEOUT_MS = 5_000;
+const OAUTH_CACHE_TTL_MS = 15_000;
+const OAUTH_CACHE_MAX_SIZE = 256;
 const POLL_GRACE_MS = 5_000;
 const HTTP_DRAIN_TIMEOUT_MS = 10_000;
 
-/** `Authorization: Bearer <key>` (what MCP clients can set) or `x-api-key` (friendlier for curl). */
-function readApiKey(req: Request): string | null {
-	const authorization = req.headers.authorization;
-	if (typeof authorization === 'string' && authorization.startsWith('Bearer ')) {
-		const key = authorization.slice('Bearer '.length).trim();
-		if (key) return key;
-	}
+/** Prefer the Bearer credential and retain the legacy API key header as a fallback. */
+function readCredential(req: Request): string | null {
+	const bearer = /^Bearer[ \t]+(.+)$/i.exec(req.headers.authorization ?? '')?.[1].trim();
+	if (bearer) return bearer;
 	const alt = req.headers['x-api-key'];
 	if (typeof alt === 'string' && alt.trim()) return alt.trim();
 	return null;
+}
+
+function unauthorized(res: Response, challenge: string, message: string): void {
+	res.set({ 'WWW-Authenticate': challenge, 'Cache-Control': 'no-store' });
+	res.status(401).json({ error: { code: 'UNAUTHORIZED', message } });
+}
+
+function createOAuthAuthenticator(invalidTokenChallenge: string) {
+	const cache = new Map<string, { expiresAt: number }>();
+
+	return async (token: string, res: Response): Promise<ApiClient | undefined> => {
+		const digest = createHash('sha256').update(token).digest('hex');
+		let entry = cache.get(digest);
+		if (!entry) {
+			if (cache.size >= OAUTH_CACHE_MAX_SIZE) {
+				const oldest = cache.keys().next();
+				if (!oldest.done) cache.delete(oldest.value);
+			}
+			entry = { expiresAt: 0 };
+			cache.set(digest, entry);
+		}
+
+		const api = new ApiClient(token, {
+			oauth: { invalidTokenChallenge, invalidate: () => cache.delete(digest) },
+		});
+		if (entry.expiresAt > Date.now()) return api;
+
+		const disconnected = new AbortController();
+		const onClose = () => disconnected.abort();
+		res.once('close', onClose);
+		try {
+			await api.getCredits({
+				signal: AbortSignal.any([disconnected.signal, AbortSignal.timeout(OAUTH_VALIDATION_TIMEOUT_MS)]),
+			});
+			// Update the entry in place so a late success cannot reinsert an invalidated entry.
+			entry.expiresAt = Date.now() + OAUTH_CACHE_TTL_MS;
+			return api;
+		} catch (error) {
+			if (res.destroyed) return;
+			if (error instanceof ApiError && error.authChallenge) {
+				unauthorized(res, error.authChallenge, 'Invalid or expired OAuth access token.');
+				return;
+			}
+			if (error instanceof ApiError && error.retryAfterSeconds !== undefined) {
+				res.set('Retry-After', String(error.retryAfterSeconds));
+			}
+			res.status(503).json({
+				error: { code: 'SERVICE_UNAVAILABLE', message: 'Could not verify the Unwatched sign-in. Retry later.' },
+			});
+		} finally {
+			res.off('close', onClose);
+		}
+	};
 }
 
 /** A fresh server + transport per request: no session state, no GET/SSE stream to buffer. */
 async function handleMcpRequest(
 	req: Request,
 	res: Response,
-	apiKey: string,
+	api: ApiClient,
 	pollShutdownSignal?: AbortSignal,
 ): Promise<void> {
-	const server = createServer(new ApiClient(apiKey), pollShutdownSignal);
+	const server = createServer(api, pollShutdownSignal, OAUTH_TOOL_META);
 	const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
 	// Tear both down when the client disconnects, so an aborted request
@@ -75,6 +133,11 @@ export function createHttpApp(options?: {
 	isDraining: () => boolean;
 	pollShutdownSignal: AbortSignal;
 }): Express {
+	const publicUrl = (process.env.MCP_PUBLIC_URL ?? 'https://mcp.unwatched.click').replace(/\/+$/, '');
+	const authServer = process.env.MCP_AUTH_SERVER ?? 'https://api.unwatched.click';
+	const challenge = `Bearer resource_metadata="${publicUrl}${RESOURCE_METADATA_PATH}", scope="${MCP_SCOPE}"`;
+	const authenticateOAuth = createOAuthAuthenticator(`${challenge}, error="invalid_token"`);
+
 	const app = express();
 	app.set('trust proxy', 1);
 	app.use((_req: Request, res: Response, next: NextFunction) => {
@@ -88,6 +151,17 @@ export function createHttpApp(options?: {
 
 	app.get('/health', (_req: Request, res: Response) => {
 		res.json({ status: 'ok', version });
+	});
+
+	app.get([RESOURCE_METADATA_PATH, `${RESOURCE_METADATA_PATH}/mcp`], (_req: Request, res: Response) => {
+		res.set('Access-Control-Allow-Origin', '*').json({
+			resource: `${publicUrl}/mcp`,
+			authorization_servers: [authServer],
+			scopes_supported: [MCP_SCOPE],
+			bearer_methods_supported: ['header'],
+			resource_name: 'Unwatched',
+			resource_documentation: 'https://unwatched.click/en/api-docs',
+		});
 	});
 
 	// Directory domain proofs, visible only when the operator set the token.
@@ -110,18 +184,16 @@ export function createHttpApp(options?: {
 	});
 
 	app.post('/mcp', async (req: Request, res: Response) => {
-		const apiKey = readApiKey(req);
-		if (!apiKey) {
-			res.set('WWW-Authenticate', 'Bearer realm="unwatched"');
-			res.status(401).json({
-				error: {
-					code: 'UNAUTHORIZED',
-					message: `API key required. Send it as "Authorization: Bearer <key>" or "x-api-key". Get one at ${KEYS_URL}.`,
-				},
-			});
+		const credential = readCredential(req);
+		if (!credential) {
+			unauthorized(res, challenge,
+				`Sign in to Unwatched or send an API key as "Authorization: Bearer <key>" or "x-api-key". Get a key at ${KEYS_URL}.`);
 			return;
 		}
-		await handleMcpRequest(req, res, apiKey, options?.pollShutdownSignal);
+		const api = credential.startsWith('unw_at_')
+			? await authenticateOAuth(credential, res)
+			: new ApiClient(credential);
+		if (api && !res.destroyed) await handleMcpRequest(req, res, api, options?.pollShutdownSignal);
 	});
 
 	// Stateless mode has no server-initiated stream to attach to and no

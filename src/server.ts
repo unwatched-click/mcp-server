@@ -1,9 +1,10 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { UnwatchedApi } from './api/contract.js';
 import { registerAllTools } from './tools/index.js';
 import { version } from './utils/version.js';
 
-export function createServer(api: UnwatchedApi, pollShutdownSignal?: AbortSignal): McpServer {
+export function createServer(api: UnwatchedApi, pollShutdownSignal?: AbortSignal, toolMeta?: Tool['_meta']): McpServer {
 	const server = new McpServer(
 		{ name: 'unwatched', version },
 		{
@@ -14,6 +15,6 @@ export function createServer(api: UnwatchedApi, pollShutdownSignal?: AbortSignal
 				+ 'is faster and cheaper than summarize_video.',
 		},
 	);
-	registerAllTools(server, api, pollShutdownSignal);
+	registerAllTools(server, api, pollShutdownSignal, toolMeta);
 	return server;
 }

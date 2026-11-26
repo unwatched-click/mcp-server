@@ -11,6 +11,8 @@ export class ApiError extends Error {
 		readonly status: number,
 		/** Seconds from a `Retry-After` header, when the API sent one. */
 		readonly retryAfterSeconds?: number,
+		/** Resource server challenge for an expired or invalid OAuth access token. */
+		readonly authChallenge?: string,
 	) {
 		super(message);
 		this.name = 'ApiError';

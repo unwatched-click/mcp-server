@@ -24,6 +24,10 @@ export interface ApiClientOptions {
 	timeoutMs?: number;
 	/** Injectable for tests. */
 	fetch?: typeof fetch;
+	oauth?: {
+		invalidTokenChallenge: string;
+		invalidate: () => void;
+	};
 }
 
 interface RequestOptions {
@@ -39,7 +43,7 @@ export class ApiClient implements UnwatchedApi {
 
 	constructor(
 		private readonly apiKey: string,
-		options?: ApiClientOptions,
+		private readonly options?: ApiClientOptions,
 	) {
 		const baseUrl = options?.baseUrl ?? process.env.UNWATCHED_API_BASE ?? 'https://api.unwatched.click';
 		this.baseUrl = baseUrl.replace(/\/+$/, '');
@@ -230,6 +234,11 @@ export class ApiClient implements UnwatchedApi {
 
 	/** Reads `{ error: { code, message } }` when present, else falls back to `HTTP_<status>`. */
 	private async responseError(response: Response): Promise<ApiError> {
+		const oauth = this.options?.oauth;
+		const invalidToken = oauth && response.status === 401
+			&& response.headers.get('www-authenticate') === 'Bearer error="invalid_token"';
+		if (invalidToken) oauth.invalidate();
+
 		let code = `HTTP_${response.status}`;
 		let message = `Unwatched API returned HTTP ${response.status}`;
 		let bodyRetryAfter: number | undefined;
@@ -250,7 +259,10 @@ export class ApiClient implements UnwatchedApi {
 			// Not the JSON error envelope; keep the fallback code and message.
 		}
 		const headerRetryAfter = parseRetryAfter(response.headers.get('retry-after'));
-		return new ApiError(code, message, response.status, headerRetryAfter ?? bodyRetryAfter);
+		return new ApiError(
+			code, message, response.status, headerRetryAfter ?? bodyRetryAfter,
+			invalidToken ? oauth.invalidTokenChallenge : undefined,
+		);
 	}
 }
 

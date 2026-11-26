@@ -158,7 +158,7 @@ describe('translate_transcript handler', () => {
 		const result = await translateTranscriptHandler({ videoId: VIDEO_ID, sourceLang: 'en', targetLang: 'uk' }, api);
 
 		expect(result).toEqual({
-			content: [{ type: 'text', text: 'Not enough Unwatched credits for this operation. Top up at https://unwatched.click/en/pricing' }],
+			content: [{ type: 'text', text: 'Not enough Unwatched credits for this operation. See pricing at https://unwatched.click/en/pricing' }],
 			isError: true,
 		});
 	});

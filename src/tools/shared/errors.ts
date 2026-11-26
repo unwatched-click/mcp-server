@@ -17,11 +17,11 @@ const API_ERROR_GUIDANCE: Partial<Record<ErrorCode, ErrorGuidance>> = {
 	UNAUTHORIZED: KEY_GUIDANCE,
 	// The backend message says whether the key is unknown, revoked or expired.
 	INVALID_API_KEY: (err) => `${err.message} ${KEY_GUIDANCE}`,
-	INSUFFICIENT_CREDITS: `Not enough Unwatched credits for this operation. Top up at ${PRICING_URL}`,
+	INSUFFICIENT_CREDITS: `Not enough Unwatched credits for this operation. See pricing at ${PRICING_URL}`,
 	RATE_LIMITED: (err) => typeof err.retryAfterSeconds === 'number'
 		? `Rate limited by the Unwatched API. Retry after ${err.retryAfterSeconds} seconds.`
 		: 'Rate limited by the Unwatched API. Retry in a few seconds.',
-	TOO_MANY_JOBS: 'Too many active jobs are already running for this API key (maximum 3). Wait for a running job to finish and retry.',
+	TOO_MANY_JOBS: 'Too many active jobs are running (maximum 3). Wait for a running job to finish and retry.',
 	JOB_INTERRUPTED: 'The job was interrupted by a server restart and your credits were refunded. Safe to retry.',
 	VIDEO_UNAVAILABLE: 'This video is unavailable (private, deleted, or removed) and cannot be processed.',
 	TRANSCRIPT_EMPTY: 'The transcript for this video is empty, so there is no text to process.',
@@ -48,6 +48,7 @@ const GUIDANCE_BY_CODE = new Map<string, ErrorGuidance>([
  */
 export function describeError(err: unknown): string {
 	if (err instanceof ApiError) {
+		if (err.authChallenge) return 'The Unwatched sign-in has expired or is invalid. Sign in again and retry.';
 		const guidance = GUIDANCE_BY_CODE.get(err.code);
 		if (typeof guidance === 'function') return guidance(err);
 		if (typeof guidance === 'string') return guidance;
@@ -66,6 +67,12 @@ export async function guard(fn: () => Promise<CallToolResult>): Promise<CallTool
 	try {
 		return await fn();
 	} catch (err) {
-		return { content: [{ type: 'text', text: describeError(err) }], isError: true };
+		return {
+			content: [{ type: 'text', text: describeError(err) }],
+			isError: true,
+			...(err instanceof ApiError && err.authChallenge
+				? { _meta: { 'mcp/www_authenticate': `${err.authChallenge}, error_description="Invalid or expired OAuth access token."` } }
+				: {}),
+		};
 	}
 }

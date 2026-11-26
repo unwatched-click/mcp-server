@@ -84,6 +84,27 @@ describe('registerAllTools', () => {
 		await server.close();
 	});
 
+	it('reports a title and explicit annotations for every tool without OAuth metadata', async () => {
+		const { server, client } = await startServer();
+		try {
+			const { tools } = await client.listTools();
+			expect(tools).toHaveLength(8);
+
+			for (const tool of tools) {
+				expect(tool.title).toMatch(/\S/);
+				expect(tool.annotations).toEqual({
+					readOnlyHint: !['summarize_video', 'translate_transcript'].includes(tool.name),
+					destructiveHint: false,
+					openWorldHint: !['search_articles', 'get_credit_balance'].includes(tool.name),
+				});
+				expect(tool._meta?.securitySchemes).toBeUndefined();
+			}
+		} finally {
+			await client.close();
+			await server.close();
+		}
+	});
+
 	it('serves a tools/call end to end through the in-memory transport', async () => {
 		const { server, api, client } = await startServer();
 		api.getVideoInfo.mockResolvedValue({

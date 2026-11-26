@@ -17,7 +17,7 @@ describe('describeError', () => {
 
 	it('points insufficient credits at the pricing page', () => {
 		expect(describeError(new ApiError('INSUFFICIENT_CREDITS', 'Insufficient credits: 2 required, 1 available', 402)))
-			.toBe('Not enough Unwatched credits for this operation. Top up at https://unwatched.click/en/pricing');
+			.toBe('Not enough Unwatched credits for this operation. See pricing at https://unwatched.click/en/pricing');
 	});
 
 	it('uses retryAfterSeconds for rate limits', () => {
@@ -51,7 +51,7 @@ describe('describeError', () => {
 		expect(describeError(new ApiError('JOB_INTERRUPTED', 'Interrupted', 0)))
 			.toBe('The job was interrupted by a server restart and your credits were refunded. Safe to retry.');
 		expect(describeError(new ApiError('TOO_MANY_JOBS', 'Too many jobs', 429)))
-			.toBe('Too many active jobs are already running for this API key (maximum 3). Wait for a running job to finish and retry.');
+			.toBe('Too many active jobs are running (maximum 3). Wait for a running job to finish and retry.');
 		expect(describeError(new ApiError('VIDEO_UNAVAILABLE', 'Private', 0)))
 			.toBe('This video is unavailable (private, deleted, or removed) and cannot be processed.');
 		expect(describeError(new ApiError('TRANSCRIPT_EMPTY', 'Empty', 0)))

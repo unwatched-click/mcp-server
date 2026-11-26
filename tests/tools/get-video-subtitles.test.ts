@@ -153,7 +153,7 @@ describe('get_video_subtitles handler', () => {
 		const result = await getVideoSubtitlesHandler({ videoId: VIDEO_ID }, api);
 
 		expect(result).toEqual({
-			content: [{ type: 'text', text: 'Not enough Unwatched credits for this operation. Top up at https://unwatched.click/en/pricing' }],
+			content: [{ type: 'text', text: 'Not enough Unwatched credits for this operation. See pricing at https://unwatched.click/en/pricing' }],
 			isError: true,
 		});
 	});

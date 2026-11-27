@@ -1,6 +1,6 @@
 {
   "name": "unwatched-click-mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "mcpName": "io.github.unwatched-click/mcp-server",
   "description": "MCP server for Unwatched: let AI agents read YouTube videos (subtitles, frames, metadata, summaries).",
   "type": "module",

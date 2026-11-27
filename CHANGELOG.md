@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-27
+
 ### Added
 
 - Hosted OpenAI domain verification at `/.well-known/openai-apps-challenge` via `OPENAI_APPS_CHALLENGE`.

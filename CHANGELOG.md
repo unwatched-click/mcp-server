@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-27
+
 ### Added
 
 - `transcribe_video` for opt-in AI transcription of videos without subtitles. It reports progress and returns timestamped segments marked with `kind: "visual"` for on-screen descriptions.

@@ -21,6 +21,7 @@ export async function summarizeVideoHandler(
 			lang: input.lang,
 			length: input.length,
 			sourceLang: input.sourceLang,
+			aiTranscript: input.aiTranscript,
 		};
 		const submitted = extra?.signal
 			? await api.submitSummary(body, { signal: extra.signal })
@@ -30,6 +31,8 @@ export async function summarizeVideoHandler(
 		return json({
 			video: result.video,
 			article: result.article,
+			// API versions predating AI transcription only summarized subtitles.
+			transcriptSource: result.transcriptSource ?? 'subtitles',
 			cached: result.cached,
 			usage: result.usage
 				? { ...result.usage, creditsCharged: job.creditsCharged }

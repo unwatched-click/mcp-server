@@ -124,6 +124,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/transcripts/ai": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create an AI transcription job
+         * @description Use POST /subtitles first. Use this operation for videos without subtitles or when you need visual descriptions. It runs even when subtitle tracks exist and can take minutes. Fresh transcription costs 20 credits per hour of video (ai-subtitles). The duration cap is 90 minutes for users and 120 minutes for admins. The transcript is shared across requests for the same video, so cache hits are free and reuse the stored language. A cached transcript can also be reused by POST /summaries with aiTranscript: true.
+         */
+        post: operations["createTranscriptionJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/summaries": {
         parameters: {
             query?: never;
@@ -135,7 +155,7 @@ export interface paths {
         put?: never;
         /**
          * Create a summary job
-         * @description Generates an article-style summary of the video in lang (use "auto" to keep the video's own language). Answers 202 with a job while it runs, or 200 with a finished job when a stored article satisfies the request. Generation costs 2 credits per hour of video (minimum 1 credit), charged by the job when it actually generates; cache hits and failures are free.
+         * @description Generates an article-style summary of the video in lang (use "auto" to keep the video's own language). Answers 202 with a job while it runs, or 200 with a finished job when a stored article satisfies the request. Generation costs 2 credits per hour of video (minimum 1 credit), charged by the job when it actually generates. When the video has no subtitles, opt in explicitly with aiTranscript: true. A fresh AI transcript adds 20 credits per hour of video (ai-subtitles) and can take minutes. NO_SUBTITLES includes availability and a price estimate for videos with no tracks. Stored AI transcripts are reused for free. A cached article or failed job costs zero credits.
          */
         post: operations["createSummaryJob"];
         delete?: never;
@@ -153,7 +173,7 @@ export interface paths {
         };
         /**
          * Poll a job
-         * @description Returns one of the caller's jobs. While it is queued or running the response asks to poll again after 5 seconds (Retry-After header). "succeeded" carries `result` — the same object the sync endpoint returns; "failed" carries `error` (JOB_INTERRUPTED means the server restarted mid-run and the credit hold was refunded). Free.
+         * @description Returns one of the caller's jobs. While it is queued or running the response asks to poll again after 5 seconds (Retry-After header). "succeeded" carries `result` — the same result shape for its kind. "failed" carries `error` (JOB_INTERRUPTED means the server restarted mid-run and the credit hold was refunded). Free.
          */
         get: operations["getJob"];
         put?: never;
@@ -232,7 +252,7 @@ export interface components {
          * @description Stable machine-readable code; see the error catalog.
          * @enum {string}
          */
-        ErrorCode: "INVALID_REQUEST" | "UNAUTHORIZED" | "INVALID_API_KEY" | "FORBIDDEN" | "INSUFFICIENT_CREDITS" | "NOT_FOUND" | "TRANSCRIPT_NOT_FOUND" | "NO_SUBTITLES" | "VIDEO_UNAVAILABLE" | "TRANSCRIPT_EMPTY" | "UNPROCESSABLE" | "MEMBERS_ONLY" | "RATE_LIMITED" | "SERVICE_BUSY" | "EXTRACTION_FAILED" | "GENERATION_FAILED" | "INTERNAL_ERROR" | "JOB_NOT_FOUND" | "JOB_INTERRUPTED" | "TOO_MANY_JOBS";
+        ErrorCode: "INVALID_REQUEST" | "UNAUTHORIZED" | "INVALID_API_KEY" | "FORBIDDEN" | "INSUFFICIENT_CREDITS" | "NOT_FOUND" | "TRANSCRIPT_NOT_FOUND" | "NO_SUBTITLES" | "VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION" | "VIDEO_UNAVAILABLE" | "TRANSCRIPT_EMPTY" | "UNPROCESSABLE" | "MEMBERS_ONLY" | "RATE_LIMITED" | "SERVICE_BUSY" | "EXTRACTION_FAILED" | "GENERATION_FAILED" | "INTERNAL_ERROR" | "JOB_NOT_FOUND" | "JOB_INTERRUPTED" | "TOO_MANY_JOBS";
         ErrorResponse: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -240,6 +260,15 @@ export interface components {
                 message: string;
                 /** @description Present on RATE_LIMITED (when known) and SERVICE_BUSY: wait at least this many seconds. */
                 retryAfterSeconds?: number;
+                /** @description AI transcription availability and price for a NO_SUBTITLES response from POST /summaries when there are no tracks. */
+                details?: {
+                    /** @description Whether AI transcription is available for this video and account. */
+                    aiTranscriptAvailable: boolean;
+                    /** @description Estimated additional credits for fresh AI transcription. */
+                    estimatedCredits: number;
+                    /** @description Video duration in seconds. 0 means the duration was unavailable. */
+                    durationSeconds: number;
+                };
             };
         };
         Usage: {
@@ -268,6 +297,11 @@ export interface components {
             /** @description Segment end, seconds from the video start — needed to cite spans. */
             end: number;
             text: string;
+            /**
+             * @description A visual description of what appears on screen during the segment.
+             * @enum {string}
+             */
+            kind?: "visual";
         };
         SubtitleTrack: {
             /** @description Language code, e.g. "en" or "en-orig" for the auto-generated original. */
@@ -361,7 +395,7 @@ export interface components {
              * @description Coarse pipeline stage of the job.
              * @enum {string}
              */
-            stage: "queued" | "fetching_transcript" | "generating" | "saving";
+            stage: "queued" | "fetching_transcript" | "transcribing" | "generating" | "saving";
             /** @description Rough position estimate, 0-100. Advisory, not a real percentage of work done. */
             percent: number;
         };
@@ -450,6 +484,36 @@ export interface components {
             cached: boolean;
             usage: components["schemas"]["Usage"];
         };
+        TranscriptionRequest: {
+            /** @description Full YouTube URL. Either url or videoId is required. */
+            url?: string;
+            /** @description 11-character YouTube video id. */
+            videoId?: string;
+            /**
+             * @description Language for visual descriptions when the video has no speech, e.g. "uk". Defaults to "auto".
+             * @default auto
+             */
+            lang: string;
+        } & ({
+            url: string;
+        } | {
+            videoId: string;
+        });
+        TranscriptionResult: {
+            videoId: string;
+            video: components["schemas"]["VideoInfo"];
+            /** @description Detected transcript language. "und" means the language was unavailable in the stored transcript. */
+            lang: string;
+            /**
+             * @description The transcription method. Older cached AI transcripts without method metadata are labeled "hybrid".
+             * @enum {string}
+             */
+            method: "hybrid" | "whisper";
+            segments: components["schemas"]["Segment"][];
+            /** @description True when a stored AI transcript satisfied the request for free. */
+            cached: boolean;
+            usage: components["schemas"]["Usage"];
+        };
         SummaryRequest: {
             /** @description Full YouTube URL. Either url or videoId is required. */
             url?: string;
@@ -464,8 +528,13 @@ export interface components {
             length?: "brief" | "medium" | "full";
             /** @description Model tier hint; "speed" or "quality". Defaults per account role. */
             tier?: string;
-            /** @description Language of the source subtitles, when it differs from the article language. */
+            /** @description Exact subtitle track language. Defaults to the article language, or the best available track when lang is "auto". */
             sourceLang?: string;
+            /**
+             * @description Opt in to AI transcription only when the video has no subtitles. A fresh transcript costs extra ai-subtitles credits per hour of video and can take minutes.
+             * @default false
+             */
+            aiTranscript: boolean;
         } & ({
             url: string;
         } | {
@@ -474,6 +543,11 @@ export interface components {
         SummaryResult: {
             article: components["schemas"]["SummaryArticle"];
             video: components["schemas"]["VideoInfo"];
+            /**
+             * @description The source of the transcript used to generate the article.
+             * @enum {string}
+             */
+            transcriptSource: "subtitles" | "ai";
             /** @description true when an existing article satisfied the request — and it was free. */
             cached: boolean;
             usage: components["schemas"]["Usage"];
@@ -518,7 +592,7 @@ export interface components {
                  * @description Coarse pipeline stage of the job.
                  * @enum {string}
                  */
-                stage: "queued" | "fetching_transcript" | "generating" | "saving";
+                stage: "queued" | "fetching_transcript" | "transcribing" | "generating" | "saving";
                 /** @description Rough position estimate, 0-100. Advisory, not a real percentage of work done. */
                 percent: number;
             } | null;
@@ -554,6 +628,11 @@ export interface components {
             result?: {
                 article: components["schemas"]["SummaryArticle"];
                 video: components["schemas"]["VideoInfo"];
+                /**
+                 * @description The source of the transcript used to generate the article.
+                 * @enum {string}
+                 */
+                transcriptSource: "subtitles" | "ai";
                 /** @description true when an existing article satisfied the request — and it was free. */
                 cached: boolean;
                 usage: components["schemas"]["Usage"];
@@ -573,7 +652,7 @@ export interface components {
                  * @description Coarse pipeline stage of the job.
                  * @enum {string}
                  */
-                stage: "queued" | "fetching_transcript" | "generating" | "saving";
+                stage: "queued" | "fetching_transcript" | "transcribing" | "generating" | "saving";
                 /** @description Rough position estimate, 0-100. Advisory, not a real percentage of work done. */
                 percent: number;
             } | null;
@@ -615,7 +694,70 @@ export interface components {
                 usage: components["schemas"]["Usage"];
             };
         };
-        ApiJob: components["schemas"]["SummaryJob"] | components["schemas"]["TranslationJob"];
+        TranscriptionJob: {
+            /** @description Job id; pass it to GET /jobs/{id}. */
+            id: string;
+            /**
+             * @description Terminal statuses are "succeeded" and "failed".
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed";
+            /** @description Advisory progress; null before the runner reports its first stage. */
+            progress: {
+                /**
+                 * @description Coarse pipeline stage of the job.
+                 * @enum {string}
+                 */
+                stage: "queued" | "fetching_transcript" | "transcribing" | "generating" | "saving";
+                /** @description Rough position estimate, 0-100. Advisory, not a real percentage of work done. */
+                percent: number;
+            } | null;
+            /** @description Present only when status is "failed". */
+            error?: {
+                code: components["schemas"]["ErrorCode"];
+                /** @description What went wrong; safe to relay to an end user. */
+                message: string;
+            };
+            /** @description Credits the job cost. 0 while it runs, on cache hits and on failures. */
+            creditsCharged: number;
+            /**
+             * Format: date-time
+             * @description ISO 8601 timestamp, UTC.
+             */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description When the runner picked the job up; null while queued.
+             */
+            startedAt: string | null;
+            /**
+             * Format: date-time
+             * @description When the job reached a terminal status; null while it runs.
+             */
+            completedAt: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "transcription";
+            /** @description The AI transcript. Present once status is "succeeded". */
+            result?: {
+                videoId: string;
+                video: components["schemas"]["VideoInfo"];
+                /** @description Detected transcript language. "und" means the language was unavailable in the stored transcript. */
+                lang: string;
+                /**
+                 * @description The transcription method. Older cached AI transcripts without method metadata are labeled "hybrid".
+                 * @enum {string}
+                 */
+                method: "hybrid" | "whisper";
+                segments: components["schemas"]["Segment"][];
+                /** @description True when a stored AI transcript satisfied the request for free. */
+                cached: boolean;
+                usage: components["schemas"]["Usage"];
+            };
+        };
+        ApiJob: components["schemas"]["SummaryJob"] | components["schemas"]["TranslationJob"] | components["schemas"]["TranscriptionJob"];
     };
     responses: never;
     parameters: never;
@@ -1137,6 +1279,106 @@ export interface operations {
             };
         };
     };
+    createTranscriptionJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TranscriptionRequest"];
+            };
+        };
+        responses: {
+            /** @description A stored AI transcript satisfied the request. The job is already succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranscriptionJob"];
+                };
+            };
+            /** @description Accepted. Poll the Location URL every 5 seconds. */
+            202: {
+                headers: {
+                    /** @description URL of the created job: /api/v1/jobs/{id}. */
+                    Location?: string;
+                    /** @description Seconds to wait before polling the job again (5). */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranscriptionJob"];
+                };
+            };
+            /** @description Error envelope. Code at this status: INVALID_REQUEST — see the root-level x-error-codes extension for what each means. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Error envelope. Codes at this status: UNAUTHORIZED, INVALID_API_KEY — see the root-level x-error-codes extension for what each means. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Error envelope. Code at this status: INSUFFICIENT_CREDITS — see the root-level x-error-codes extension for what each means. */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Error envelope. Codes at this status: VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION, UNPROCESSABLE — see the root-level x-error-codes extension for what each means. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Error envelope. Codes at this status: RATE_LIMITED, TOO_MANY_JOBS — see the root-level x-error-codes extension for what each means. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Error envelope. Code at this status: INTERNAL_ERROR — see the root-level x-error-codes extension for what each means. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Error envelope. Code at this status: EXTRACTION_FAILED — see the root-level x-error-codes extension for what each means. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     createSummaryJob: {
         parameters: {
             query?: never;
@@ -1199,6 +1441,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Error envelope. Codes at this status: NO_SUBTITLES, VIDEO_UNAVAILABLE, MEMBERS_ONLY, VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION, UNPROCESSABLE — see the root-level x-error-codes extension for what each means. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Error envelope. Codes at this status: RATE_LIMITED, TOO_MANY_JOBS — see the root-level x-error-codes extension for what each means. */
             429: {
                 headers: {
@@ -1210,6 +1461,24 @@ export interface operations {
             };
             /** @description Error envelope. Code at this status: INTERNAL_ERROR — see the root-level x-error-codes extension for what each means. */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Error envelope. Code at this status: EXTRACTION_FAILED — see the root-level x-error-codes extension for what each means. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Error envelope. Code at this status: SERVICE_BUSY — see the root-level x-error-codes extension for what each means. */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

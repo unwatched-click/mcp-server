@@ -29,6 +29,7 @@ const summaryResult: SummaryResult = {
 		thumbnailUrl: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg',
 		publishedAt: '2009-10-25T06:57:33.000Z',
 	},
+	transcriptSource: 'subtitles',
 	cached: false,
 	usage: { creditsCharged: 2, creditsRemaining: 17 },
 };
@@ -74,6 +75,7 @@ const SUMMARY_JSON = `{
     "videoId": "dQw4w9WgXcQ",
     "summaryMode": "standard"
   },
+  "transcriptSource": "subtitles",
   "cached": false,
   "usage": {
     "creditsCharged": 2,
@@ -95,6 +97,7 @@ describe('summarize_video handler', () => {
 			lang: 'en',
 			length: 'brief',
 			sourceLang: undefined,
+			aiTranscript: undefined,
 		});
 		expect(api.getJob).not.toHaveBeenCalled();
 		expect(result.isError).toBeUndefined();
@@ -113,7 +116,23 @@ describe('summarize_video handler', () => {
 			lang: 'uk',
 			length: undefined,
 			sourceLang: 'en',
+			aiTranscript: undefined,
 		});
+	});
+
+	it('forwards explicit opt-in and reports the AI transcript source and total charge', async () => {
+		const api = createFakeApi();
+		api.submitSummary.mockResolvedValue(makeSummaryJob({
+			result: { ...summaryResult, transcriptSource: 'ai' },
+			creditsCharged: 3.2,
+		}));
+
+		const result = await summarizeVideoHandler({ videoId: VIDEO_ID, lang: 'en', aiTranscript: true }, api);
+
+		expect(api.submitSummary).toHaveBeenCalledWith(expect.objectContaining({ aiTranscript: true }));
+		expect(result.content).toEqual([{ type: 'text', text: SUMMARY_JSON
+			.replace('"transcriptSource": "subtitles"', '"transcriptSource": "ai"')
+			.replace('"creditsCharged": 2', '"creditsCharged": 3.2') }]);
 	});
 
 	it('polls 202 job to completion and sends progress notifications when progressToken is set', async () => {
@@ -265,5 +284,20 @@ describe('summarize_video handler', () => {
 			content: [{ type: 'text', text: UNAUTHORIZED_TEXT }],
 			isError: true,
 		});
+	});
+
+	it('surfaces the transcription estimate and asks for consent without retrying', async () => {
+		const api = createFakeApi();
+		api.submitSummary.mockRejectedValue(new ApiError('NO_SUBTITLES', 'This video has no subtitles.', 422,
+			undefined, undefined, { aiTranscriptAvailable: true, estimatedCredits: 2.5, durationSeconds: 450 }));
+
+		const result = await summarizeVideoHandler({ videoId: VIDEO_ID, lang: 'en' }, api);
+
+		expect(result.isError).toBe(true);
+		expect(result.content).toEqual([{ type: 'text', text: expect.stringContaining('about 2.5 credits') }]);
+		expect(result.content).toEqual([{ type: 'text', text: expect.stringContaining('Ask the user for consent') }]);
+		expect(api.submitSummary).toHaveBeenCalledOnce();
+		expect(api.submitTranscription).not.toHaveBeenCalled();
+		expect(api.getJob).not.toHaveBeenCalled();
 	});
 });

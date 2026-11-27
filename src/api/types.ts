@@ -30,7 +30,14 @@ export type FramesResult = Schemas['FramesResult'];
 
 export type TranslateResult = Schemas['TranslateResult'];
 
-export type SummaryLength = NonNullable<Schemas['SummaryRequest']['length']>;
+// The API applies defaults when lang or aiTranscript are omitted on input.
+export type TranscriptionRequest = VideoRef & Partial<Pick<Schemas['TranscriptionRequest'], 'lang'>>;
+
+export type TranscriptionResult = Schemas['TranscriptionResult'];
+
+export type SummaryRequest = VideoRef
+	& Pick<Schemas['SummaryRequest'], 'lang' | 'length' | 'sourceLang'>
+	& Partial<Pick<Schemas['SummaryRequest'], 'aiTranscript'>>;
 
 export type SummaryArticle = Schemas['SummaryArticle'];
 
@@ -44,9 +51,13 @@ export type CreditSnapshot = Schemas['CreditSnapshot'];
 
 export type ApiErrorBody = Schemas['ErrorResponse'];
 
+export type ApiErrorDetails = ApiErrorBody['error']['details'];
+
 export type SummaryJob = Schemas['SummaryJob'];
 
 export type TranslationJob = Schemas['TranslationJob'];
+
+export type TranscriptionJob = Schemas['TranscriptionJob'];
 
 export type ApiJob = Schemas['ApiJob'];
 

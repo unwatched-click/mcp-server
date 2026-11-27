@@ -8,7 +8,7 @@ import { createFakeApi } from './fake-api.js';
 
 /** Minimal structural view of the JSON schema `tools/list` reports. */
 interface JsonSchemaShape {
-	properties?: Record<string, { type?: string; maxItems?: number }>;
+	properties?: Record<string, { type?: string; maxItems?: number; description?: string }>;
 	required?: string[];
 }
 
@@ -32,7 +32,7 @@ const VIDEO_INFO_JSON = `{
 }`;
 
 describe('registerAllTools', () => {
-	it('exposes exactly the eight Unwatched tools', async () => {
+	it('exposes exactly the nine Unwatched tools', async () => {
 		const { server, client } = await startServer();
 
 		const { tools } = await client.listTools();
@@ -42,6 +42,7 @@ describe('registerAllTools', () => {
 			'list_subtitle_tracks',
 			'get_video_info',
 			'get_video_frame',
+			'transcribe_video',
 			'translate_transcript',
 			'summarize_video',
 			'search_articles',
@@ -66,6 +67,15 @@ describe('registerAllTools', () => {
 		expect(frameSchema.required).toEqual(['timestamps']);
 		expect(frameSchema.properties?.timestamps?.maxItems).toBe(5);
 
+		const transcribeTool = byName.get('transcribe_video')!;
+		expect(transcribeTool.description).toContain('Try get_video_subtitles first');
+		expect(transcribeTool.description).toContain('20 credits per hour');
+		expect(transcribeTool.description).toContain('Ask the user for consent');
+		expect(transcribeTool.description).toContain('kind: "visual"');
+		const transcribeSchema = transcribeTool.inputSchema as JsonSchemaShape;
+		expect(Object.keys(transcribeSchema.properties ?? {})).toEqual(['url', 'videoId', 'lang']);
+		expect(transcribeSchema.required).toBeUndefined();
+
 		const translateTool = byName.get('translate_transcript')!;
 		expect(translateTool.description).toContain('several minutes');
 		expect(translateTool.description).toContain('progress');
@@ -77,6 +87,10 @@ describe('registerAllTools', () => {
 		expect(summarizeTool.description).toContain('progress');
 		const summarizeSchema = summarizeTool.inputSchema as JsonSchemaShape;
 		expect(summarizeSchema.required).toEqual(['lang']);
+		expect(summarizeSchema.properties?.aiTranscript).toMatchObject({
+			type: 'boolean',
+			description: expect.stringContaining('Ask the user to approve the extra cost'),
+		});
 
 		const balanceSchema = byName.get('get_credit_balance')!.inputSchema as JsonSchemaShape;
 		expect(balanceSchema.properties).toEqual({});
@@ -88,10 +102,10 @@ describe('registerAllTools', () => {
 		const { server, client } = await startServer();
 		try {
 			const { tools } = await client.listTools();
-			expect(tools).toHaveLength(8);
+			expect(tools).toHaveLength(9);
 
 			for (const tool of tools) {
-				const spendsCredits = ['get_video_subtitles', 'get_video_frame', 'summarize_video', 'translate_transcript'].includes(tool.name);
+				const spendsCredits = ['get_video_subtitles', 'get_video_frame', 'summarize_video', 'translate_transcript', 'transcribe_video'].includes(tool.name);
 				expect(tool.title).toMatch(/\S/);
 				expect(tool.annotations).toEqual({
 					readOnlyHint: !spendsCredits,

@@ -2,12 +2,15 @@ import { ApiError, CLIENT_ERROR_CODES } from '../api/errors.js';
 import { setJobRetryAfterSeconds, type ApiRequestOptions, type UnwatchedApi } from '../api/contract.js';
 import type {
 	ApiJob,
+	ApiErrorBody,
+	ApiErrorDetails,
 	ArticleSearchResult,
 	CreditSnapshot,
 	FramesResult,
 	SubtitlesResult,
-	SummaryLength,
+	SummaryRequest,
 	TracksResult,
+	TranscriptionRequest,
 	VideoInfo,
 	VideoRef,
 } from '../api/types.js';
@@ -94,11 +97,15 @@ export class ApiClient implements UnwatchedApi {
 		});
 	}
 
-	async submitSummary(input: VideoRef & {
-		lang: string;
-		length?: SummaryLength;
-		sourceLang?: string;
-	}, opts?: ApiRequestOptions): Promise<ApiJob> {
+	async submitTranscription(input: TranscriptionRequest, opts?: ApiRequestOptions): Promise<ApiJob> {
+		return this.requestJob('/api/v1/transcripts/ai', {
+			method: 'POST',
+			body: input,
+			signal: opts?.signal,
+		});
+	}
+
+	async submitSummary(input: SummaryRequest, opts?: ApiRequestOptions): Promise<ApiJob> {
 		return this.requestJob('/api/v1/summaries', {
 			method: 'POST',
 			body: input,
@@ -232,7 +239,7 @@ export class ApiClient implements UnwatchedApi {
 		);
 	}
 
-	/** Reads `{ error: { code, message } }` when present, else falls back to `HTTP_<status>`. */
+	/** Reads the API error envelope when present, else falls back to `HTTP_<status>`. */
 	private async responseError(response: Response): Promise<ApiError> {
 		const oauth = this.options?.oauth;
 		const invalidToken = oauth && response.status === 401
@@ -242,11 +249,13 @@ export class ApiClient implements UnwatchedApi {
 		let code = `HTTP_${response.status}`;
 		let message = `Unwatched API returned HTTP ${response.status}`;
 		let bodyRetryAfter: number | undefined;
+		let details: ApiErrorDetails;
 		try {
-			const body = await response.json() as { error?: { code?: unknown; message?: unknown; retryAfterSeconds?: unknown } };
+			const body = await response.json() as { error?: Partial<ApiErrorBody['error']> };
 			if (typeof body?.error?.code === 'string' && typeof body?.error?.message === 'string') {
 				code = body.error.code;
 				message = body.error.message;
+				details = body.error.details;
 			}
 			if (
 				typeof body?.error?.retryAfterSeconds === 'number'
@@ -262,6 +271,7 @@ export class ApiClient implements UnwatchedApi {
 		return new ApiError(
 			code, message, response.status, headerRetryAfter ?? bodyRetryAfter,
 			invalidToken ? oauth.invalidTokenChallenge : undefined,
+			details,
 		);
 	}
 }

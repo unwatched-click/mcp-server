@@ -5,6 +5,7 @@ import { registerGetVideoSubtitlesTool } from './get-video-subtitles/index.js';
 import { registerListSubtitleTracksTool } from './list-subtitle-tracks/index.js';
 import { registerGetVideoInfoTool } from './get-video-info/index.js';
 import { registerGetVideoFrameTool } from './get-video-frame/index.js';
+import { registerTranscribeVideoTool } from './transcribe-video/index.js';
 import { registerTranslateTranscriptTool } from './translate-transcript/index.js';
 import { registerSummarizeVideoTool } from './summarize-video/index.js';
 import { registerSearchArticlesTool } from './search-articles/index.js';
@@ -21,6 +22,7 @@ export function registerAllTools(
 	registerListSubtitleTracksTool(server, api, toolMeta);
 	registerGetVideoInfoTool(server, api, toolMeta);
 	registerGetVideoFrameTool(server, api, toolMeta);
+	registerTranscribeVideoTool(server, api, pollShutdownSignal, toolMeta);
 	registerTranslateTranscriptTool(server, api, pollShutdownSignal, toolMeta);
 	registerSummarizeVideoTool(server, api, pollShutdownSignal, toolMeta);
 	registerSearchArticlesTool(server, api, toolMeta);

@@ -6,8 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `transcribe_video` for opt-in AI transcription of videos without subtitles. It reports progress and returns timestamped segments marked with `kind: "visual"` for on-screen descriptions.
+- `aiTranscript` opt-in for `summarize_video` and a `transcriptSource` field in the result.
+
 ### Changed
 
+- `NO_SUBTITLES` guidance now shows the estimated AI transcription cost when available and asks for user consent before suggesting a paid retry or transcription.
 - The MCP Registry entry for the hosted server no longer requires an `Authorization` header: clients discover OAuth sign-in from the server. API keys still work as a Bearer token.
 
 ## [0.2.1] - 2026-11-27

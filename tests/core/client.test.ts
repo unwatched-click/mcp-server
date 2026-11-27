@@ -122,7 +122,7 @@ describe('ApiClient request shape', () => {
 			Location: '/api/v1/jobs/job_sum_42',
 			'Retry-After': '7',
 		}));
-		const input = { videoId: 'abc', lang: 'en', length: 'brief' as const };
+		const input = { videoId: 'abc', lang: 'en', length: 'brief' as const, aiTranscript: true };
 		const job = await client.submitSummary(input);
 		const [url, init] = lastCall();
 		expect(String(url)).toBe(`${BASE}/api/v1/summaries`);
@@ -130,6 +130,37 @@ describe('ApiClient request shape', () => {
 		expect(JSON.parse(String(init?.body))).toEqual(input);
 		expect(job.id).toBe('job_sum_42');
 		expect(getJobRetryAfterSeconds(job)).toBe(7);
+	});
+
+	it('omits aiTranscript on the wire unless supplied', async () => {
+		fetchMock.mockResolvedValueOnce(jsonResponse({ id: 'job_sum_42' }, 202));
+		await client.submitSummary({ videoId: 'dQw4w9WgXcQ', lang: 'en', aiTranscript: undefined });
+
+		const [, init] = lastCall();
+		expect(JSON.parse(String(init?.body))).toEqual({ videoId: 'dQw4w9WgXcQ', lang: 'en' });
+	});
+
+	it('POSTs AI transcription and reads the job and polling delay', async () => {
+		const queuedJob: ApiJob = {
+			id: 'job_ai_1',
+			kind: 'transcription',
+			status: 'queued',
+			progress: { stage: 'queued', percent: 0 },
+			creditsCharged: 0,
+			createdAt: '2026-11-26T10:00:00.000Z',
+			startedAt: null,
+			completedAt: null,
+		};
+		fetchMock.mockResolvedValueOnce(jsonResponse(queuedJob, 202, { 'Retry-After': '5' }));
+		const input = { url: 'https://youtu.be/dQw4w9WgXcQ', lang: 'uk' };
+		const job = await client.submitTranscription(input);
+
+		const [url, init] = lastCall();
+		expect(String(url)).toBe(`${BASE}/api/v1/transcripts/ai`);
+		expect(init?.method).toBe('POST');
+		expect(JSON.parse(String(init?.body))).toEqual(input);
+		expect(job).toEqual(queuedJob);
+		expect(getJobRetryAfterSeconds(job)).toBe(5);
 	});
 
 	it('GETs job status by id with URL encoding and Retry-After', async () => {
@@ -220,6 +251,19 @@ describe('ApiClient error mapping', () => {
 		expect(error.message).toBe('Not enough credits.');
 		expect(error.status).toBe(402);
 		expect(error.retryAfterSeconds).toBeUndefined();
+	});
+
+	it('preserves the AI transcription details from a NO_SUBTITLES response', async () => {
+		const details = { aiTranscriptAvailable: true, estimatedCredits: 2.5, durationSeconds: 450 };
+		fetchMock.mockResolvedValueOnce(jsonResponse(
+			{ error: { code: 'NO_SUBTITLES', message: 'This video has no subtitles.', details } },
+			422,
+		));
+		const client = new ApiClient(KEY, { fetch: fetchMock });
+
+		const error = await failure(() => client.submitSummary({ videoId: 'dQw4w9WgXcQ', lang: 'en' }));
+
+		expect(error).toMatchObject({ code: 'NO_SUBTITLES', status: 422, details });
 	});
 
 	it('falls back to HTTP_<status> for non-envelope error bodies', async () => {

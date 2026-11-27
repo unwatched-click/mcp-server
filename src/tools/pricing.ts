@@ -15,4 +15,6 @@ export const CREDIT_PRICES = {
 	translatePerHour: 5,
 	/** `summary`: price per hour of video, 1 credit minimum. */
 	summaryPerHour: 2,
+	/** `ai-subtitles`: price per hour of video for fresh AI transcription. */
+	aiSubtitlesPerHour: 20,
 } as const;

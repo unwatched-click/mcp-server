@@ -1,6 +1,6 @@
 # Unwatched MCP Server
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for [Unwatched](https://unwatched.click) that lets AI agents read YouTube videos through the [Unwatched REST API](https://unwatched.click/en/api-docs). It exposes the API's video-reading features as eight MCP tools: subtitles with timestamps, available subtitle tracks, video metadata, frames at given seconds, transcript translation, AI article summaries, search over already-generated articles, and the remaining credit balance.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for [Unwatched](https://unwatched.click) that lets AI agents read YouTube videos through the [Unwatched REST API](https://unwatched.click/en/api-docs). Its nine tools cover timestamped subtitles, subtitle tracks, video metadata, frames, opt-in AI transcription, transcript translation, article summaries, article search, and credit balance.
 
 The server runs locally over stdio via `npx`, or any Streamable HTTP client can connect to the hosted endpoint.
 
@@ -91,12 +91,13 @@ Sign in at https://unwatched.click and open https://unwatched.click/en/developer
 | `list_subtitle_tracks` | List the subtitle languages available for a video, including whether each track is auto-generated and its extraction quality. | Free |
 | `get_video_info` | Title, duration, thumbnail URL and publish date of a video. | Free |
 | `get_video_frame` | Extract still frames at given timestamps (in seconds) and return them as images with stable URLs, for reading on-screen text, slides and charts. Batch the timestamps into one call. | Charged per newly extracted frame; a timestamp extracted before is free. |
+| `transcribe_video` | Generate a timestamped AI transcript for a video without subtitles. Try `get_video_subtitles` first and ask the user before starting transcription. Segments with `kind: "visual"` describe what's on screen. | 20 credits per hour of video. Cached transcripts are free. |
 | `translate_transcript` | Translate an already-fetched transcript into another language, keeping timestamps. Run `get_video_subtitles` for the source language first. | Charged per hour of video; cached translations are free. |
-| `summarize_video` | Generate a structured article from a video — title, intro, sections, key points, conclusion — in the requested language. Slower than `get_video_subtitles`; prefer the subtitles tool when you only need the raw text. | Charged per hour of video; an already-generated article is returned free. |
+| `summarize_video` | Generate a structured article with a title, intro, sections, key points, and conclusion in the requested language. Use `get_video_subtitles` when you only need the transcript. If the video has no subtitles, ask the user to approve the estimated cost before retrying with `aiTranscript: true`. The result identifies the transcript source. | Charged per hour of video. Fresh AI transcription costs an extra 20 credits per hour. Cached articles are free. |
 | `search_articles` | Search the articles already generated on unwatched.click by title text, category and language. Use it before `summarize_video` to check whether a video has already been processed. | Free |
 | `get_credit_balance` | Remaining credits on the connected account. | Free |
 
-`summarize_video` and `translate_transcript` run asynchronously for uncached videos and may take several minutes. Cached results return immediately; otherwise the server polls the job until completion, sending MCP `notifications/progress` updates when the client provides a `progressToken` and stopping immediately if the request is cancelled. If a call hits the client-side wait limit (15 minutes), the job keeps running server-side — calling the tool again with the same inputs re-attaches to the active job.
+`summarize_video`, `translate_transcript`, and `transcribe_video` run asynchronously for uncached results and may take several minutes. Cached results return immediately. For other jobs, the server polls until completion, sends MCP `notifications/progress` updates when the client provides a `progressToken`, and stops polling if the request is cancelled. If a call hits the client-side wait limit (15 minutes), the job keeps running server-side. Calling the tool again with the same inputs reattaches to the active job.
 
 ## Pricing
 

@@ -116,12 +116,18 @@ describe('HTTP shutdown', () => {
 	});
 
 	it.each([
-		{ name: 'summarize_video', kind: 'summary', args: { videoId: 'dQw4w9WgXcQ', lang: 'en' } },
-		{ name: 'translate_transcript', kind: 'translation', args: { videoId: 'dQw4w9WgXcQ', sourceLang: 'en', targetLang: 'uk' } },
-	] as const)('sends a retryable tool error over SSE for $name', async ({ name, kind, args }) => {
+		{ name: 'summarize_video', submit: 'submitSummary', args: { videoId: 'dQw4w9WgXcQ', lang: 'en' } },
+		{ name: 'translate_transcript', submit: 'submitTranslation', args: { videoId: 'dQw4w9WgXcQ', sourceLang: 'en', targetLang: 'uk' } },
+		{ name: 'transcribe_video', submit: 'submitTranscription', args: { videoId: 'dQw4w9WgXcQ' } },
+	] as const)('sends a retryable tool error over SSE for $name', async ({ name, submit, args }) => {
 		const api = createFakeApi();
 		api.submitSummary.mockResolvedValue({ ...RUNNING_JOB, kind: 'summary' });
 		api.submitTranslation.mockResolvedValue({ ...RUNNING_JOB, kind: 'translation' });
+		api.submitTranscription.mockResolvedValue({
+			...RUNNING_JOB,
+			kind: 'transcription',
+			progress: { stage: 'transcribing', percent: 50 },
+		});
 		const shutdown = new AbortController();
 		const server = createServer(api, shutdown.signal);
 		const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
@@ -142,7 +148,7 @@ describe('HTTP shutdown', () => {
 			const decoder = new TextDecoder();
 			const progress = decoder.decode((await reader.read()).value);
 			expect(progress).toContain('notifications/progress');
-			expect(kind === 'summary' ? api.submitSummary : api.submitTranslation).toHaveBeenCalledOnce();
+			expect(api[submit]).toHaveBeenCalledOnce();
 
 			const retryGuidance = 'The MCP server is restarting. Retry this tool with the same input.';
 			shutdown.abort(new DOMException(retryGuidance, 'AbortError'));

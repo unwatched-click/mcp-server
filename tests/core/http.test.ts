@@ -256,7 +256,7 @@ describe('JSON-RPC over POST /mcp', () => {
 			{ ...MCP_HEADERS, 'mcp-protocol-version': '2025-06-18' },
 		);
 		const result = payload.result as { tools: Tool[] };
-		expect(result.tools).toHaveLength(8);
+		expect(result.tools).toHaveLength(9);
 		for (const tool of result.tools) {
 			expect(tool._meta?.securitySchemes).toEqual([{ type: 'oauth2', scopes: ['mcp'] }]);
 		}

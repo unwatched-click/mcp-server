@@ -35,6 +35,35 @@ describe('describeError', () => {
 			.toBe('lang: String must contain at least 2 character(s)');
 	});
 
+	it('offers the estimated price and both consent-gated options when AI transcription is available', () => {
+		const error = new ApiError('NO_SUBTITLES', 'No subtitle tracks.', 422, undefined, undefined, {
+			aiTranscriptAvailable: true,
+			estimatedCredits: 8.25,
+			durationSeconds: 1485,
+		});
+		const message = describeError(error);
+		expect(message).toContain('This video has no subtitles.');
+		expect(message).toContain('about 8.25 credits');
+		expect(message).toContain('plus the usual summary charge');
+		expect(message).toContain('Ask the user for consent');
+		expect(message).toContain('retry summarize_video with aiTranscript: true or call transcribe_video');
+	});
+
+	it.each([undefined, { aiTranscriptAvailable: false, estimatedCredits: 2, durationSeconds: 360 }])(
+		'keeps the backend NO_SUBTITLES message when AI transcription is unavailable (%j)',
+		(details) => {
+			const message = 'The requested subtitle track is unavailable.';
+			expect(describeError(new ApiError('NO_SUBTITLES', message, 422, undefined, undefined, details))).toBe(message);
+		},
+	);
+
+	it('keeps the API account limit and suggests an alternative for over-limit videos', () => {
+		const message = 'AI transcription is limited to 90 minutes for this account.';
+		const error = new ApiError('VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION', message, 422);
+		expect(describeError(error)).toContain(message);
+		expect(describeError(error)).toContain('choose a shorter video');
+	});
+
 	it('marks timeouts and network failures as transient', () => {
 		expect(describeError(new ApiError('TIMEOUT', 'Request timed out after 30000ms', 0)))
 			.toBe('The request to the Unwatched API timed out. This is usually transient — retry later.');

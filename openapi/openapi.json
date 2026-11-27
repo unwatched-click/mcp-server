@@ -3,7 +3,7 @@
     "info": {
         "title": "Unwatched API",
         "version": "1.0.0",
-        "description": "REST API for unwatched.click: subtitles, translated transcripts, article-style summaries and still frames for any YouTube video.\n\nAuthentication: every operation except GET /openapi.json requires a per-user API key (`unw_sk_...`, mint one at https://unwatched.click/en/developer/keys) sent as `Authorization: Bearer <key>` or in the `x-api-key` header.\n\nCredits: billable operations debit a prepaid balance \u2014 1 credit = $0.01. Each operation's description lists its price from the live catalog; cache hits are free, and every billable response carries `usage { creditsCharged, creditsRemaining }`. GET /credits reports the balance.\n\nAsync jobs: POST /summaries and POST /transcripts/translate answer 202 with a job (status \"queued\" or \"running\") and a Location header pointing at GET /jobs/{id}. Poll that URL about every 5 seconds (the responses also send Retry-After) until status is \"succeeded\" \u2014 the payload is in `result` \u2014 or \"failed\", with the reason in `error` and the credit hold refunded. A POST satisfied from cache answers 200 with the finished job in the same shape.\n\nHuman-readable docs: https://unwatched.click/en/api-docs"
+        "description": "REST API for unwatched.click: subtitles, AI transcription, translated transcripts, article-style summaries and still frames for any YouTube video.\n\nAuthentication: every operation except GET /openapi.json requires a per-user API key (`unw_sk_...`, mint one at https://unwatched.click/en/developer/keys) sent as `Authorization: Bearer <key>` or in the `x-api-key` header.\n\nCredits: billable operations debit a prepaid balance \u2014 1 credit = $0.01. Each operation's description lists its price from the live catalog; cache hits are free, and every billable response carries `usage { creditsCharged, creditsRemaining }`. GET /credits reports the balance.\n\nAsync jobs: POST /summaries, POST /transcripts/ai and POST /transcripts/translate answer 202 with a job (status \"queued\" or \"running\") and a Location header pointing at GET /jobs/{id}. Poll that URL about every 5 seconds (the responses also send Retry-After) until status is \"succeeded\" \u2014 the payload is in `result` \u2014 or \"failed\", with the reason in `error` and the credit hold refunded. A POST satisfied from cache answers 200 with the finished job in the same shape.\n\nHuman-readable docs: https://unwatched.click/en/api-docs"
     },
     "servers": [
         {
@@ -83,6 +83,7 @@
                     "NOT_FOUND",
                     "TRANSCRIPT_NOT_FOUND",
                     "NO_SUBTITLES",
+                    "VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION",
                     "VIDEO_UNAVAILABLE",
                     "TRANSCRIPT_EMPTY",
                     "UNPROCESSABLE",
@@ -115,6 +116,31 @@
                                 "type": "integer",
                                 "exclusiveMinimum": 0,
                                 "description": "Present on RATE_LIMITED (when known) and SERVICE_BUSY: wait at least this many seconds."
+                            },
+                            "details": {
+                                "type": "object",
+                                "properties": {
+                                    "aiTranscriptAvailable": {
+                                        "type": "boolean",
+                                        "description": "Whether AI transcription is available for this video and account."
+                                    },
+                                    "estimatedCredits": {
+                                        "type": "number",
+                                        "minimum": 0,
+                                        "description": "Estimated additional credits for fresh AI transcription."
+                                    },
+                                    "durationSeconds": {
+                                        "type": "number",
+                                        "minimum": 0,
+                                        "description": "Video duration in seconds. 0 means the duration was unavailable."
+                                    }
+                                },
+                                "required": [
+                                    "aiTranscriptAvailable",
+                                    "estimatedCredits",
+                                    "durationSeconds"
+                                ],
+                                "description": "AI transcription availability and price for a NO_SUBTITLES response from POST /summaries when there are no tracks."
                             }
                         },
                         "required": [
@@ -198,6 +224,13 @@
                     },
                     "text": {
                         "type": "string"
+                    },
+                    "kind": {
+                        "type": "string",
+                        "enum": [
+                            "visual"
+                        ],
+                        "description": "A visual description of what appears on screen during the segment."
                     }
                 },
                 "required": [
@@ -500,6 +533,7 @@
                         "enum": [
                             "queued",
                             "fetching_transcript",
+                            "transcribing",
                             "generating",
                             "saving"
                         ],
@@ -842,6 +876,101 @@
                     "usage"
                 ]
             },
+            "TranscriptionRequest": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Full YouTube URL. Either url or videoId is required."
+                    },
+                    "videoId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "11-character YouTube video id."
+                    },
+                    "lang": {
+                        "type": "string",
+                        "minLength": 2,
+                        "maxLength": 16,
+                        "default": "auto",
+                        "description": "Language for visual descriptions when the video has no speech, e.g. \"uk\". Defaults to \"auto\"."
+                    }
+                },
+                "allOf": [
+                    {
+                        "anyOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "url": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "url"
+                                ]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "videoId": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "videoId"
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+            "TranscriptionResult": {
+                "type": "object",
+                "properties": {
+                    "videoId": {
+                        "type": "string"
+                    },
+                    "video": {
+                        "$ref": "#/components/schemas/VideoInfo"
+                    },
+                    "lang": {
+                        "type": "string",
+                        "description": "Detected transcript language. \"und\" means the language was unavailable in the stored transcript."
+                    },
+                    "method": {
+                        "type": "string",
+                        "enum": [
+                            "hybrid",
+                            "whisper"
+                        ],
+                        "description": "The transcription method. Older cached AI transcripts without method metadata are labeled \"hybrid\"."
+                    },
+                    "segments": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Segment"
+                        }
+                    },
+                    "cached": {
+                        "type": "boolean",
+                        "description": "True when a stored AI transcript satisfied the request for free."
+                    },
+                    "usage": {
+                        "$ref": "#/components/schemas/Usage"
+                    }
+                },
+                "required": [
+                    "videoId",
+                    "video",
+                    "lang",
+                    "method",
+                    "segments",
+                    "cached",
+                    "usage"
+                ]
+            },
             "SummaryRequest": {
                 "type": "object",
                 "properties": {
@@ -878,7 +1007,12 @@
                         "type": "string",
                         "minLength": 2,
                         "maxLength": 16,
-                        "description": "Language of the source subtitles, when it differs from the article language."
+                        "description": "Exact subtitle track language. Defaults to the article language, or the best available track when lang is \"auto\"."
+                    },
+                    "aiTranscript": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Opt in to AI transcription only when the video has no subtitles. A fresh transcript costs extra ai-subtitles credits per hour of video and can take minutes."
                     }
                 },
                 "required": [
@@ -922,6 +1056,14 @@
                     "video": {
                         "$ref": "#/components/schemas/VideoInfo"
                     },
+                    "transcriptSource": {
+                        "type": "string",
+                        "enum": [
+                            "subtitles",
+                            "ai"
+                        ],
+                        "description": "The source of the transcript used to generate the article."
+                    },
                     "cached": {
                         "type": "boolean",
                         "description": "true when an existing article satisfied the request \u2014 and it was free."
@@ -933,6 +1075,7 @@
                 "required": [
                     "article",
                     "video",
+                    "transcriptSource",
                     "cached",
                     "usage"
                 ]
@@ -1048,6 +1191,7 @@
                                 "enum": [
                                     "queued",
                                     "fetching_transcript",
+                                    "transcribing",
                                     "generating",
                                     "saving"
                                 ],
@@ -1123,6 +1267,14 @@
                             "video": {
                                 "$ref": "#/components/schemas/VideoInfo"
                             },
+                            "transcriptSource": {
+                                "type": "string",
+                                "enum": [
+                                    "subtitles",
+                                    "ai"
+                                ],
+                                "description": "The source of the transcript used to generate the article."
+                            },
                             "cached": {
                                 "type": "boolean",
                                 "description": "true when an existing article satisfied the request \u2014 and it was free."
@@ -1134,6 +1286,7 @@
                         "required": [
                             "article",
                             "video",
+                            "transcriptSource",
                             "cached",
                             "usage"
                         ],
@@ -1179,6 +1332,7 @@
                                 "enum": [
                                     "queued",
                                     "fetching_transcript",
+                                    "transcribing",
                                     "generating",
                                     "saving"
                                 ],
@@ -1292,6 +1446,159 @@
                     "kind"
                 ]
             },
+            "TranscriptionJob": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Job id; pass it to GET /jobs/{id}."
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "queued",
+                            "running",
+                            "succeeded",
+                            "failed"
+                        ],
+                        "description": "Terminal statuses are \"succeeded\" and \"failed\"."
+                    },
+                    "progress": {
+                        "type": [
+                            "object",
+                            "null"
+                        ],
+                        "properties": {
+                            "stage": {
+                                "type": "string",
+                                "enum": [
+                                    "queued",
+                                    "fetching_transcript",
+                                    "transcribing",
+                                    "generating",
+                                    "saving"
+                                ],
+                                "description": "Coarse pipeline stage of the job."
+                            },
+                            "percent": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100,
+                                "description": "Rough position estimate, 0-100. Advisory, not a real percentage of work done."
+                            }
+                        },
+                        "required": [
+                            "stage",
+                            "percent"
+                        ],
+                        "description": "Advisory progress; null before the runner reports its first stage."
+                    },
+                    "error": {
+                        "type": "object",
+                        "properties": {
+                            "code": {
+                                "$ref": "#/components/schemas/ErrorCode"
+                            },
+                            "message": {
+                                "type": "string",
+                                "description": "What went wrong; safe to relay to an end user."
+                            }
+                        },
+                        "required": [
+                            "code",
+                            "message"
+                        ],
+                        "description": "Present only when status is \"failed\"."
+                    },
+                    "creditsCharged": {
+                        "type": "number",
+                        "description": "Credits the job cost. 0 while it runs, on cache hits and on failures."
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "ISO 8601 timestamp, UTC."
+                    },
+                    "startedAt": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time",
+                        "description": "When the runner picked the job up; null while queued."
+                    },
+                    "completedAt": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time",
+                        "description": "When the job reached a terminal status; null while it runs."
+                    },
+                    "kind": {
+                        "type": "string",
+                        "enum": [
+                            "transcription"
+                        ]
+                    },
+                    "result": {
+                        "type": "object",
+                        "properties": {
+                            "videoId": {
+                                "type": "string"
+                            },
+                            "video": {
+                                "$ref": "#/components/schemas/VideoInfo"
+                            },
+                            "lang": {
+                                "type": "string",
+                                "description": "Detected transcript language. \"und\" means the language was unavailable in the stored transcript."
+                            },
+                            "method": {
+                                "type": "string",
+                                "enum": [
+                                    "hybrid",
+                                    "whisper"
+                                ],
+                                "description": "The transcription method. Older cached AI transcripts without method metadata are labeled \"hybrid\"."
+                            },
+                            "segments": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/Segment"
+                                }
+                            },
+                            "cached": {
+                                "type": "boolean",
+                                "description": "True when a stored AI transcript satisfied the request for free."
+                            },
+                            "usage": {
+                                "$ref": "#/components/schemas/Usage"
+                            }
+                        },
+                        "required": [
+                            "videoId",
+                            "video",
+                            "lang",
+                            "method",
+                            "segments",
+                            "cached",
+                            "usage"
+                        ],
+                        "description": "The AI transcript. Present once status is \"succeeded\"."
+                    }
+                },
+                "required": [
+                    "id",
+                    "status",
+                    "progress",
+                    "creditsCharged",
+                    "createdAt",
+                    "startedAt",
+                    "completedAt",
+                    "kind"
+                ]
+            },
             "ApiJob": {
                 "oneOf": [
                     {
@@ -1299,13 +1606,17 @@
                     },
                     {
                         "$ref": "#/components/schemas/TranslationJob"
+                    },
+                    {
+                        "$ref": "#/components/schemas/TranscriptionJob"
                     }
                 ],
                 "discriminator": {
                     "propertyName": "kind",
                     "mapping": {
                         "summary": "#/components/schemas/SummaryJob",
-                        "translation": "#/components/schemas/TranslationJob"
+                        "translation": "#/components/schemas/TranslationJob",
+                        "transcription": "#/components/schemas/TranscriptionJob"
                     }
                 }
             }
@@ -2095,11 +2406,161 @@
                 }
             }
         },
+        "/transcripts/ai": {
+            "post": {
+                "operationId": "createTranscriptionJob",
+                "summary": "Create an AI transcription job",
+                "description": "Use POST /subtitles first. Use this operation for videos without subtitles or when you need visual descriptions. It runs even when subtitle tracks exist and can take minutes. Fresh transcription costs 20 credits per hour of video (ai-subtitles). The duration cap is 90 minutes for users and 120 minutes for admins. The transcript is shared across requests for the same video, so cache hits are free and reuse the stored language. A cached transcript can also be reused by POST /summaries with aiTranscript: true.",
+                "tags": [
+                    "transcripts"
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TranscriptionRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "A stored AI transcript satisfied the request. The job is already succeeded.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TranscriptionJob"
+                                }
+                            }
+                        }
+                    },
+                    "202": {
+                        "description": "Accepted. Poll the Location URL every 5 seconds.",
+                        "headers": {
+                            "Location": {
+                                "description": "URL of the created job: /api/v1/jobs/{id}.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            },
+                            "Retry-After": {
+                                "description": "Seconds to wait before polling the job again (5).",
+                                "schema": {
+                                    "type": "integer"
+                                }
+                            }
+                        },
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TranscriptionJob"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Error envelope. Code at this status: INVALID_REQUEST \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INVALID_REQUEST"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error envelope. Codes at this status: UNAUTHORIZED, INVALID_API_KEY \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "UNAUTHORIZED",
+                            "INVALID_API_KEY"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "402": {
+                        "description": "Error envelope. Code at this status: INSUFFICIENT_CREDITS \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INSUFFICIENT_CREDITS"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Error envelope. Codes at this status: VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION, UNPROCESSABLE \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION",
+                            "UNPROCESSABLE"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Error envelope. Codes at this status: RATE_LIMITED, TOO_MANY_JOBS \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "RATE_LIMITED",
+                            "TOO_MANY_JOBS"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error envelope. Code at this status: INTERNAL_ERROR \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "INTERNAL_ERROR"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "Error envelope. Code at this status: EXTRACTION_FAILED \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "EXTRACTION_FAILED"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/summaries": {
             "post": {
                 "operationId": "createSummaryJob",
                 "summary": "Create a summary job",
-                "description": "Generates an article-style summary of the video in lang (use \"auto\" to keep the video's own language). Answers 202 with a job while it runs, or 200 with a finished job when a stored article satisfies the request. Generation costs 2 credits per hour of video (minimum 1 credit), charged by the job when it actually generates; cache hits and failures are free.",
+                "description": "Generates an article-style summary of the video in lang (use \"auto\" to keep the video's own language). Answers 202 with a job while it runs, or 200 with a finished job when a stored article satisfies the request. Generation costs 2 credits per hour of video (minimum 1 credit), charged by the job when it actually generates. When the video has no subtitles, opt in explicitly with aiTranscript: true. A fresh AI transcript adds 20 credits per hour of video (ai-subtitles) and can take minutes. NO_SUBTITLES includes availability and a price estimate for videos with no tracks. Stored AI transcripts are reused for free. A cached article or failed job costs zero credits.",
                 "tags": [
                     "summaries"
                 ],
@@ -2188,6 +2649,23 @@
                             }
                         }
                     },
+                    "422": {
+                        "description": "Error envelope. Codes at this status: NO_SUBTITLES, VIDEO_UNAVAILABLE, MEMBERS_ONLY, VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION, UNPROCESSABLE \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "NO_SUBTITLES",
+                            "VIDEO_UNAVAILABLE",
+                            "MEMBERS_ONLY",
+                            "VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION",
+                            "UNPROCESSABLE"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
                     "429": {
                         "description": "Error envelope. Codes at this status: RATE_LIMITED, TOO_MANY_JOBS \u2014 see the root-level x-error-codes extension for what each means.",
                         "x-error-codes": [
@@ -2214,6 +2692,32 @@
                                 }
                             }
                         }
+                    },
+                    "502": {
+                        "description": "Error envelope. Code at this status: EXTRACTION_FAILED \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "EXTRACTION_FAILED"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Error envelope. Code at this status: SERVICE_BUSY \u2014 see the root-level x-error-codes extension for what each means.",
+                        "x-error-codes": [
+                            "SERVICE_BUSY"
+                        ],
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -2222,7 +2726,7 @@
             "get": {
                 "operationId": "getJob",
                 "summary": "Poll a job",
-                "description": "Returns one of the caller's jobs. While it is queued or running the response asks to poll again after 5 seconds (Retry-After header). \"succeeded\" carries `result` \u2014 the same object the sync endpoint returns; \"failed\" carries `error` (JOB_INTERRUPTED means the server restarted mid-run and the credit hold was refunded). Free.",
+                "description": "Returns one of the caller's jobs. While it is queued or running the response asks to poll again after 5 seconds (Retry-After header). \"succeeded\" carries `result` \u2014 the same result shape for its kind. \"failed\" carries `error` (JOB_INTERRUPTED means the server restarted mid-run and the credit hold was refunded). Free.",
                 "tags": [
                     "jobs"
                 ],
@@ -2587,7 +3091,12 @@
         "NO_SUBTITLES": {
             "status": 422,
             "retryable": false,
-            "description": "The video has no usable subtitle track, or the requested language is not among them. List tracks (GET /videos/:id/tracks) and pick an available language, or try another video."
+            "description": "The video has no usable subtitle track, or the requested language is not among them. For summaries without any tracks, check details.aiTranscriptAvailable and details.estimatedCredits before opting in with aiTranscript: true. For an unavailable source language, list tracks (GET /videos/{videoId}/tracks) and pick an available language."
+        },
+        "VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION": {
+            "status": 422,
+            "retryable": false,
+            "description": "The video exceeds the AI transcription limit of 90 minutes for users or 120 minutes for admins."
         },
         "VIDEO_UNAVAILABLE": {
             "status": 422,

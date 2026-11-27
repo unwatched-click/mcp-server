@@ -24,6 +24,12 @@ const API_ERROR_GUIDANCE: Partial<Record<ErrorCode, ErrorGuidance>> = {
 	TOO_MANY_JOBS: 'Too many active jobs are running (maximum 3). Wait for a running job to finish and retry.',
 	JOB_INTERRUPTED: 'The job was interrupted by a server restart and your credits were refunded. Safe to retry.',
 	VIDEO_UNAVAILABLE: 'This video is unavailable (private, deleted, or removed) and cannot be processed.',
+	NO_SUBTITLES: (err) => err.details?.aiTranscriptAvailable === true
+		? `This video has no subtitles. Fresh AI transcription costs about ${err.details.estimatedCredits} credits, plus the usual summary charge if you request a summary. `
+			+ 'Ask the user for consent before spending these credits. After they agree, retry summarize_video with aiTranscript: true or call transcribe_video to get the transcript.'
+		: err.message,
+	VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION: (err) =>
+		`${err.message} Use get_video_subtitles if subtitles are available, or choose a shorter video for AI transcription.`,
 	TRANSCRIPT_EMPTY: 'The transcript for this video is empty, so there is no text to process.',
 	GENERATION_FAILED: 'Generation failed while processing this video. Retry later.',
 	// The backend message says what was wrong with the input.

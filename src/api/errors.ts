@@ -1,3 +1,5 @@
+import type { ApiErrorDetails } from './types.js';
+
 /**
  * Failure of an Unwatched API call. `code` is the backend's `error.code`
  * (e.g. INVALID_REQUEST, UNAUTHORIZED, INSUFFICIENT_CREDITS, RATE_LIMITED,
@@ -13,6 +15,8 @@ export class ApiError extends Error {
 		readonly retryAfterSeconds?: number,
 		/** Resource server challenge for an expired or invalid OAuth access token. */
 		readonly authChallenge?: string,
+		/** Structured details from the backend error envelope. */
+		readonly details?: ApiErrorDetails,
 	) {
 		super(message);
 		this.name = 'ApiError';

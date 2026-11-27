@@ -11,6 +11,7 @@ const MAX_RETRY_BACKOFF_MS = 30_000;
 const STAGE_MESSAGES: Record<ApiJobStage, string> = {
 	queued: 'Queued',
 	fetching_transcript: 'Fetching transcript',
+	transcribing: 'Transcribing',
 	generating: 'Generating',
 	saving: 'Saving',
 };

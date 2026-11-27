@@ -4,8 +4,9 @@ import type {
 	CreditSnapshot,
 	FramesResult,
 	SubtitlesResult,
-	SummaryLength,
+	SummaryRequest,
 	TracksResult,
+	TranscriptionRequest,
 	VideoInfo,
 	VideoRef,
 } from './types.js';
@@ -44,12 +45,11 @@ export interface UnwatchedApi {
 		targetLang: string;
 	}, opts?: ApiRequestOptions): Promise<ApiJob>;
 
+	/** POST /api/v1/transcripts/ai */
+	submitTranscription(input: TranscriptionRequest, opts?: ApiRequestOptions): Promise<ApiJob>;
+
 	/** POST /api/v1/summaries */
-	submitSummary(input: VideoRef & {
-		lang: string;
-		length?: SummaryLength;
-		sourceLang?: string;
-	}, opts?: ApiRequestOptions): Promise<ApiJob>;
+	submitSummary(input: SummaryRequest, opts?: ApiRequestOptions): Promise<ApiJob>;
 
 	/** GET /api/v1/jobs/:id */
 	getJob(id: string, opts?: ApiRequestOptions): Promise<ApiJob>;

@@ -12,23 +12,7 @@
   "remotes": [
     {
       "type": "streamable-http",
-      "url": "https://mcp.unwatched.click/mcp",
-      "headers": [
-        {
-          "name": "Authorization",
-          "value": "Bearer {api_key}",
-          "description": "Unwatched API key as a Bearer token. Create one at https://unwatched.click/en/developer/keys",
-          "isRequired": true,
-          "isSecret": true,
-          "variables": {
-            "api_key": {
-              "description": "Unwatched API key (unw_sk_...)",
-              "isRequired": true,
-              "isSecret": true
-            }
-          }
-        }
-      ]
+      "url": "https://mcp.unwatched.click/mcp"
     }
   ],
   "packages": [

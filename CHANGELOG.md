@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- The MCP Registry entry for the hosted server no longer requires an `Authorization` header: clients discover OAuth sign-in from the server. API keys still work as a Bearer token.
+
 ## [0.2.1] - 2026-11-27
 
 ### Added

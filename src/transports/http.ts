@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createServer as createNodeServer } from 'node:http';
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
+import { hostHeaderValidation } from '@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { ApiError } from '../api/errors.js';
 import { ApiClient } from '../http/client.js';
@@ -16,6 +17,7 @@ const OAUTH_CACHE_TTL_MS = 15_000;
 const OAUTH_CACHE_MAX_SIZE = 256;
 const POLL_GRACE_MS = 5_000;
 const HTTP_DRAIN_TIMEOUT_MS = 10_000;
+const MCP_ALLOWED_METHODS = 'POST, OPTIONS';
 
 /** Prefer the Bearer credential and retain the legacy API key header as a fallback. */
 function readCredential(req: Request): string | null {
@@ -101,7 +103,7 @@ async function handleMcpRequest(
 }
 
 function notAllowed(res: Response): void {
-	res.status(405).json({
+	res.set('Allow', MCP_ALLOWED_METHODS).status(405).json({
 		error: {
 			code: 'METHOD_NOT_ALLOWED',
 			message: 'This MCP endpoint is stateless: use POST for JSON-RPC requests.',
@@ -137,9 +139,37 @@ export function createHttpApp(options?: {
 	const authServer = process.env.MCP_AUTH_SERVER ?? 'https://api.unwatched.click';
 	const challenge = `Bearer resource_metadata="${publicUrl}${RESOURCE_METADATA_PATH}", scope="${MCP_SCOPE}"`;
 	const authenticateOAuth = createOAuthAuthenticator(`${challenge}, error="invalid_token"`);
+	const validateBrowserHost = hostHeaderValidation([new URL(publicUrl).hostname, 'localhost', '127.0.0.1', '[::1]']);
+	const parseJson = express.json({ limit: '1mb' });
 
 	const app = express();
 	app.set('trust proxy', 1);
+	app.all('/mcp', (req, res, next) => {
+		res.set({
+			'Access-Control-Allow-Origin': '*',
+			'Access-Control-Expose-Headers': 'WWW-Authenticate, Mcp-Session-Id',
+		});
+		const origin = req.get('Origin');
+		if (origin === undefined) {
+			next();
+			return;
+		}
+		if (!/^https?:\/\//.test(origin) || !URL.canParse(origin) || new URL(origin).origin !== origin) {
+			res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Invalid Origin header.' } });
+			return;
+		}
+		// Allow browser clients on other origins while rejecting requests to rebound hostnames.
+		validateBrowserHost(req, res, next);
+	}, (req, res, next) => {
+		if (req.method === 'OPTIONS' && req.get('Origin') && req.get('Access-Control-Request-Method')) {
+			res.set({
+				'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+				'Access-Control-Allow-Headers': 'Authorization, Content-Type, Accept, Mcp-Protocol-Version, Mcp-Session-Id, Last-Event-ID, x-api-key',
+			}).status(204).end();
+			return;
+		}
+		next();
+	});
 	app.use((_req: Request, res: Response, next: NextFunction) => {
 		if (options?.isDraining()) {
 			res.set({ Connection: 'close', 'Retry-After': '1' }).status(503).end();
@@ -147,7 +177,30 @@ export function createHttpApp(options?: {
 		}
 		next();
 	});
-	app.use(express.json({ limit: '1mb' }));
+	app.route('/mcp')
+		.all(async (req, res, next) => {
+			const credential = readCredential(req);
+			if (!credential) {
+				unauthorized(res, challenge,
+					`Sign in to Unwatched or send an API key as "Authorization: Bearer <key>" or "x-api-key". Get a key at ${KEYS_URL}.`);
+				return;
+			}
+			const api = credential.startsWith('unw_at_')
+				? await authenticateOAuth(credential, res)
+				: new ApiClient(credential);
+			if (!api || res.destroyed) return;
+			res.locals.api = api;
+			next();
+		})
+		.post(parseJson, async (req, res: Response<unknown, { api: ApiClient }>) => {
+			await handleMcpRequest(req, res, res.locals.api, options?.pollShutdownSignal);
+		})
+		.options((_req, res) => {
+			res.set('Allow', MCP_ALLOWED_METHODS).status(204).end();
+		})
+		.all((_req, res) => notAllowed(res));
+
+	app.use(parseJson);
 
 	app.get('/health', (_req: Request, res: Response) => {
 		res.json({ status: 'ok', version });
@@ -191,25 +244,6 @@ export function createHttpApp(options?: {
 			return;
 		}
 		res.type('text/plain; charset=utf-8').end(token);
-	});
-
-	app.post('/mcp', async (req: Request, res: Response) => {
-		const credential = readCredential(req);
-		if (!credential) {
-			unauthorized(res, challenge,
-				`Sign in to Unwatched or send an API key as "Authorization: Bearer <key>" or "x-api-key". Get a key at ${KEYS_URL}.`);
-			return;
-		}
-		const api = credential.startsWith('unw_at_')
-			? await authenticateOAuth(credential, res)
-			: new ApiClient(credential);
-		if (api && !res.destroyed) await handleMcpRequest(req, res, api, options?.pollShutdownSignal);
-	});
-
-	// Stateless mode has no server-initiated stream to attach to and no
-	// session to terminate; say so explicitly instead of a confusing 404.
-	app.all('/mcp', (_req: Request, res: Response) => {
-		notAllowed(res);
 	});
 
 	// Express 5 forwards rejected handler promises here too; keep every

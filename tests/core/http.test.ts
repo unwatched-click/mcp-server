@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { once } from 'node:events';
-import type { Server } from 'node:http';
+import { request, type Server } from 'node:http';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { createHttpApp } from '../../src/transports/http.js';
 import { version } from '../../src/utils/version.js';
@@ -12,6 +12,7 @@ const CHALLENGE = `Bearer resource_metadata="${DEFAULT_PUBLIC_URL}${RESOURCE_MET
 const INVALID_TOKEN_CHALLENGE = `${CHALLENGE}, error="invalid_token"`;
 const INVALID_TOKEN_MESSAGE = 'Invalid or expired OAuth access token.';
 const PING = { jsonrpc: '2.0', id: 1, method: 'ping' };
+const BROWSER_ORIGIN = 'http://localhost:6274';
 const MCP_HEADERS: Record<string, string> = {
 	authorization: `Bearer ${KEY}`,
 	'content-type': 'application/json',
@@ -99,6 +100,12 @@ describe('unauthenticated /mcp access', () => {
 		expect(body.error.code).toBe('UNAUTHORIZED');
 		expect(body.error.message).toContain('Sign in to Unwatched or send an API key');
 	});
+
+	it.each(['GET', 'DELETE', 'OPTIONS', 'PUT', 'HEAD'])('challenges %s without a credential', async (method) => {
+		const res = await clientFetch(`${baseUrl}/mcp`, { method });
+		expect(res.status).toBe(401);
+		expect(res.headers.get('www-authenticate')).toBe(CHALLENGE);
+	});
 });
 
 describe('OAuth resource metadata', () => {
@@ -144,18 +151,87 @@ describe('OAuth resource metadata', () => {
 });
 
 describe('method handling', () => {
-	it('answers GET /mcp with 405', async () => {
-		const res = await fetch(`${baseUrl}/mcp`);
+	it.each(['GET', 'DELETE'])('answers authenticated %s with 405 and lists supported methods', async (method) => {
+		const res = await clientFetch(`${baseUrl}/mcp`, {
+			method,
+			headers: { authorization: `Bearer ${KEY}`, origin: BROWSER_ORIGIN },
+		});
 		expect(res.status).toBe(405);
+		expect(res.headers.get('allow')).toBe('POST, OPTIONS');
+		expect(res.headers.get('access-control-allow-origin')).toBe('*');
 		const body = await res.json() as { error: { code: string } };
 		expect(body.error.code).toBe('METHOD_NOT_ALLOWED');
 	});
 
-	it('answers DELETE /mcp with 405', async () => {
-		const res = await fetch(`${baseUrl}/mcp`, { method: 'DELETE', headers: { authorization: `Bearer ${KEY}` } });
-		expect(res.status).toBe(405);
-		const body = await res.json() as { error: { code: string } };
-		expect(body.error.code).toBe('METHOD_NOT_ALLOWED');
+	it('answers authenticated OPTIONS with the supported methods', async () => {
+		const res = await clientFetch(`${baseUrl}/mcp`, {
+			method: 'OPTIONS',
+			headers: { authorization: `Bearer ${KEY}` },
+		});
+		expect(res.status).toBe(204);
+		expect(res.headers.get('allow')).toBe('POST, OPTIONS');
+	});
+});
+
+describe('CORS on /mcp', () => {
+	it('answers a browser preflight without authentication', async () => {
+		const headers = 'authorization, content-type, accept, mcp-protocol-version, mcp-session-id, last-event-id, x-api-key';
+		const res = await clientFetch(`${baseUrl}/mcp`, {
+			method: 'OPTIONS',
+			headers: {
+				origin: BROWSER_ORIGIN,
+				'access-control-request-method': 'POST',
+				'access-control-request-headers': headers,
+			},
+		});
+		expect(res.status).toBe(204);
+		expect(res.headers.get('access-control-allow-origin')).toBe('*');
+		expect(res.headers.get('access-control-allow-methods')).toBe('GET, POST, DELETE, OPTIONS');
+		expect(res.headers.get('access-control-allow-headers')?.toLowerCase()).toBe(headers);
+		expect(res.headers.get('access-control-allow-credentials')).toBeNull();
+		expect(res.headers.get('www-authenticate')).toBeNull();
+		expect(await res.text()).toBe('');
+	});
+
+	it('exposes the authentication challenge to browsers on a 401', async () => {
+		const res = await clientFetch(`${baseUrl}/mcp`, { headers: { origin: BROWSER_ORIGIN } });
+		expect(res.status).toBe(401);
+		expect(res.headers.get('access-control-allow-origin')).toBe('*');
+		expect(res.headers.get('access-control-allow-credentials')).toBeNull();
+		expect(res.headers.get('access-control-expose-headers')).toBe('WWW-Authenticate, Mcp-Session-Id');
+		expect(res.headers.get('www-authenticate')).toBe(CHALLENGE);
+	});
+
+	it('rejects a malformed Origin header', async () => {
+		const res = await clientFetch(`${baseUrl}/mcp`, { headers: { origin: `${BROWSER_ORIGIN}/path` } });
+		expect(res.status).toBe(403);
+	});
+
+	it('rejects browser requests addressed to an unrecognized hostname', async () => {
+		const status = await new Promise<number | undefined>((resolve, reject) => {
+			request(`${baseUrl}/mcp`, {
+				headers: { origin: 'http://unrecognized.example.test', host: 'unrecognized.example.test' },
+			}, (res) => {
+				res.resume();
+				resolve(res.statusCode);
+			}).on('error', reject).end();
+		});
+		expect(status).toBe(403);
+	});
+
+	it('adds CORS headers to a 503 while the server is draining', async () => {
+		const draining = await listen(createHttpApp({
+			isDraining: () => true,
+			pollShutdownSignal: new AbortController().signal,
+		}));
+		try {
+			const res = await clientFetch(`${draining.baseUrl}/mcp`, { headers: { origin: BROWSER_ORIGIN } });
+			expect(res.status).toBe(503);
+			expect(res.headers.get('access-control-allow-origin')).toBe('*');
+			expect(res.headers.get('access-control-expose-headers')).toBe('WWW-Authenticate, Mcp-Session-Id');
+		} finally {
+			await close(draining.server);
+		}
 	});
 });
 
@@ -217,10 +293,10 @@ describe('GET /.well-known/openai-apps-challenge', () => {
 });
 
 describe('JSON-RPC over POST /mcp', () => {
-	it('answers initialize', async () => {
+	it('answers initialize with CORS headers for a browser client', async () => {
 		const res = await fetch(`${baseUrl}/mcp`, {
 			method: 'POST',
-			headers: MCP_HEADERS,
+			headers: { ...MCP_HEADERS, origin: BROWSER_ORIGIN },
 			body: JSON.stringify({
 				jsonrpc: '2.0',
 				id: 1,
@@ -233,6 +309,8 @@ describe('JSON-RPC over POST /mcp', () => {
 			}),
 		});
 		const payload = await readSseResponse(res);
+		expect(res.headers.get('access-control-allow-origin')).toBe('*');
+		expect(res.headers.get('access-control-expose-headers')).toBe('WWW-Authenticate, Mcp-Session-Id');
 		// Stateless: no session id is ever issued.
 		expect(res.headers.get('mcp-session-id')).toBeNull();
 
@@ -338,6 +416,14 @@ describe('OAuth access token validation', () => {
 		expect(apiFetch.mock.calls.map(([url]) => url)).toEqual([CREDITS_URL, CREDITS_URL]);
 	});
 
+	it.each(['GET', 'DELETE'])('challenges %s with an invalid OAuth credential before rejecting the method', async (method) => {
+		apiFetch.mockResolvedValueOnce(invalidToken());
+		const res = await clientFetch(`${baseUrl}/mcp`, { method, headers: oauthHeaders('invalid') });
+		expect(res.status).toBe(401);
+		expect(res.headers.get('www-authenticate')).toBe(INVALID_TOKEN_CHALLENGE);
+		expect(await res.json()).toEqual({ error: { code: 'UNAUTHORIZED', message: INVALID_TOKEN_MESSAGE } });
+	});
+
 	it('forwards the OAuth credential and reuses successful validation only for that token and within the TTL', async () => {
 		const clock = vi.spyOn(Date, 'now');
 		const video = { videoId: VIDEO_ID, title: 'Example video' };
@@ -380,8 +466,9 @@ describe('OAuth access token validation', () => {
 	it('does not challenge or cache a temporary API failure', async () => {
 		const headers = oauthHeaders('rate-limited');
 		apiFetch.mockResolvedValueOnce(Response.json({}, { status: 429, headers: { 'Retry-After': '7' } }));
-		const response = await post(PING, headers);
+		const response = await post(PING, { ...headers, origin: BROWSER_ORIGIN });
 		expect(response.status).toBe(503);
+		expect(response.headers.get('access-control-allow-origin')).toBe('*');
 		expect(response.headers.get('www-authenticate')).toBeNull();
 		expect(response.headers.get('retry-after')).toBe('7');
 		apiFetch.mockResolvedValueOnce(Response.json({}));

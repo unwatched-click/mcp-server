@@ -3,7 +3,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { MAX_FRAMES_PER_REQUEST } from '../../api/contract.js';
 import type { UnwatchedApi } from '../../api/contract.js';
 import { CREDIT_PRICES } from '../pricing.js';
-import { READ_EXTERNAL } from '../shared/annotations.js';
+import { SPENDS_CREDITS } from '../shared/annotations.js';
 import { getVideoFrameHandler } from './handler.js';
 import { getVideoFrameInputSchema } from './schema.js';
 
@@ -17,7 +17,7 @@ export function registerGetVideoFrameTool(server: McpServer, api: UnwatchedApi, 
 			+ `Costs ${CREDIT_PRICES.screenshotPerFrame} credit per newly extracted frame. Cached frames are free. `
 			+ `Batch up to ${MAX_FRAMES_PER_REQUEST} timestamps per call.`,
 		inputSchema: getVideoFrameInputSchema,
-		annotations: READ_EXTERNAL,
+		annotations: SPENDS_CREDITS,
 		_meta,
 	}, (input) => getVideoFrameHandler(input, api));
 }

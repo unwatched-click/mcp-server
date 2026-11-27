@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { UnwatchedApi } from '../../api/contract.js';
 import { CREDIT_PRICES } from '../pricing.js';
-import { READ_EXTERNAL } from '../shared/annotations.js';
+import { SPENDS_CREDITS } from '../shared/annotations.js';
 import { getVideoSubtitlesHandler } from './handler.js';
 import { getVideoSubtitlesInputSchema } from './schema.js';
 
@@ -14,7 +14,7 @@ export function registerGetVideoSubtitlesTool(server: McpServer, api: UnwatchedA
 			+ `Costs ${CREDIT_PRICES.subtitleFetch} credit on the first fetch for each video and language. `
 			+ 'Cached fetches are free.',
 		inputSchema: getVideoSubtitlesInputSchema,
-		annotations: READ_EXTERNAL,
+		annotations: SPENDS_CREDITS,
 		_meta,
 	}, (input) => getVideoSubtitlesHandler(input, api));
 }

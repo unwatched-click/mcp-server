@@ -193,6 +193,29 @@ describe('directory claim proofs', () => {
 	});
 });
 
+describe('GET /.well-known/openai-apps-challenge', () => {
+	const path = '/.well-known/openai-apps-challenge';
+
+	afterEach(() => vi.unstubAllEnvs());
+
+	it('returns 404 when the challenge token is unset', async () => {
+		vi.stubEnv('OPENAI_APPS_CHALLENGE', undefined);
+		const res = await fetch(`${baseUrl}${path}`);
+		expect(res.status).toBe(404);
+		await res.text();
+	});
+
+	it('serves only the exact token as public plain text', async () => {
+		const token = 'openai-challenge-test-token';
+		vi.stubEnv('OPENAI_APPS_CHALLENGE', token);
+		const res = await fetch(`${baseUrl}${path}`, { redirect: 'manual' });
+		expect(res.status).toBe(200);
+		expect(res.headers.get('content-type')).toMatch(/^text\/plain\b/);
+		expect(res.headers.get('access-control-allow-origin')).toBe('*');
+		expect(await res.text()).toBe(token);
+	});
+});
+
 describe('JSON-RPC over POST /mcp', () => {
 	it('answers initialize', async () => {
 		const res = await fetch(`${baseUrl}/mcp`, {

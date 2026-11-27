@@ -77,6 +77,8 @@ claude mcp add --transport http unwatched https://mcp.unwatched.click/mcp
 
 Clients that support custom request headers can still send an API key as `Authorization: Bearer <your API key>`. In Claude Code, add `--header "Authorization: Bearer unw_sk_your_key"` to the command above.
 
+For OpenAI plugin submission, set `OPENAI_APPS_CHALLENGE` on the hosted server to the exact token shown in the submission portal. The public `GET /.well-known/openai-apps-challenge` returns the token as plain text with no added newline, or `404` when unset. OpenAI checks the root path on the HTTPS MCP hostname (`https://mcp.unwatched.click` for the hosted server) or an eligible HTTPS parent domain selected in the portal. [OpenAI domain verification](https://developers.openai.com/plugins/deploy/submission#domain-verification-details)
+
 ## Getting an API key
 
 Sign in at https://unwatched.click and open https://unwatched.click/en/developer/keys. Create a key and pass it to the server as `UNWATCHED_API_KEY` (stdio) or in the `Authorization` header (hosted and self-hosted HTTP). If a key leaks, revoke it on the same page.

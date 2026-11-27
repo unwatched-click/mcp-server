@@ -183,6 +183,16 @@ export function createHttpApp(options?: {
 		res.type('text/plain').send(`${claim}\n`);
 	});
 
+	app.get('/.well-known/openai-apps-challenge', (_req: Request, res: Response) => {
+		const token = process.env.OPENAI_APPS_CHALLENGE;
+		res.set({ 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' });
+		if (!token) {
+			notConfigured(res);
+			return;
+		}
+		res.type('text/plain; charset=utf-8').end(token);
+	});
+
 	app.post('/mcp', async (req: Request, res: Response) => {
 		const credential = readCredential(req);
 		if (!credential) {

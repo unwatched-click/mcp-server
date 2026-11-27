@@ -91,10 +91,11 @@ describe('registerAllTools', () => {
 			expect(tools).toHaveLength(8);
 
 			for (const tool of tools) {
+				const spendsCredits = ['get_video_subtitles', 'get_video_frame', 'summarize_video', 'translate_transcript'].includes(tool.name);
 				expect(tool.title).toMatch(/\S/);
 				expect(tool.annotations).toEqual({
-					readOnlyHint: !['summarize_video', 'translate_transcript'].includes(tool.name),
-					destructiveHint: false,
+					readOnlyHint: !spendsCredits,
+					destructiveHint: spendsCredits,
 					openWorldHint: !['search_articles', 'get_credit_balance'].includes(tool.name),
 				});
 				expect(tool._meta?.securitySchemes).toBeUndefined();

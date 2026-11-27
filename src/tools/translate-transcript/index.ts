@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { UnwatchedApi } from '../../api/contract.js';
 import { CREDIT_PRICES } from '../pricing.js';
-import { GENERATE } from '../shared/annotations.js';
+import { SPENDS_CREDITS } from '../shared/annotations.js';
 import { translateTranscriptHandler } from './handler.js';
 import { translateTranscriptInputSchema } from './schema.js';
 
@@ -20,7 +20,7 @@ export function registerTranslateTranscriptTool(
 			+ `Costs ${CREDIT_PRICES.translatePerHour} credits per hour of video with a 1-credit minimum. `
 			+ 'Cached translations are free. Translation may take several minutes and reports progress.',
 		inputSchema: translateTranscriptInputSchema,
-		annotations: GENERATE,
+		annotations: SPENDS_CREDITS,
 		_meta,
 	}, (input, extra) => translateTranscriptHandler(input, api, { ...extra, pollShutdownSignal }));
 }

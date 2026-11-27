@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { UnwatchedApi } from '../../api/contract.js';
 import { CREDIT_PRICES } from '../pricing.js';
-import { GENERATE } from '../shared/annotations.js';
+import { SPENDS_CREDITS } from '../shared/annotations.js';
 import { summarizeVideoHandler } from './handler.js';
 import { summarizeVideoInputSchema } from './schema.js';
 
@@ -20,7 +20,7 @@ export function registerSummarizeVideoTool(
 			+ 'with a 1-credit minimum. Cached articles are free. Generation may take several minutes '
 			+ 'and reports progress. Use get_video_subtitles when you only need the transcript.',
 		inputSchema: summarizeVideoInputSchema,
-		annotations: GENERATE,
+		annotations: SPENDS_CREDITS,
 		_meta,
 	}, (input, extra) => summarizeVideoHandler(input, api, { ...extra, pollShutdownSignal }));
 }

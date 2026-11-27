@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Hosted OpenAI domain verification at `/.well-known/openai-apps-challenge` via `OPENAI_APPS_CHALLENGE`.
+
+### Fixed
+
+- Every tool that can spend credits (subtitles, frames, summaries, translations) is now annotated as non-read-only and destructive, because a spent credit cannot be refunded.
+
 ## [0.2.0] - 2026-11-26
 
 ### Added
